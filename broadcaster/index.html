@@ -26,14 +26,11 @@
         </div>
       </div>
 
-      <div class="status-banner blue">
-        <span>STREAMING QR</span>
-        <strong id="specs" class="status-line">Choose a file to begin</strong>
-      </div>
+
 
       <div class="mode-grid mode-picker" id="mode-picker" role="radiogroup" aria-label="What to send">
-        <label class="mode-card primary" style="text-align: center;">
-          <input type="radio" name="send-mode" value="file" checked style="display:none;" />
+        <label class="mode-card secondary" style="text-align: center;">
+          <input type="radio" name="send-mode" value="file" style="display:none;" />
           <span style="color: white; font-weight: bold;">File</span>
         </label>
         <label class="mode-card secondary" style="text-align: center;">
@@ -42,7 +39,7 @@
         </label>
       </div>
 
-      <div class="field-row" id="pane-file">
+      <div class="field-row" id="pane-file" hidden>
         <label class="field-label" id="file-picker-label" for="cfg-file">Any file · up to %MAX_FILE_LABEL%</label>
         <input id="cfg-file" type="file" />
       </div>
@@ -52,9 +49,10 @@
       <div class="field-row note-composer" id="pane-snippet" hidden>
         <label for="snippet-text" class="field-label" id="snippet-label">Text to send</label>
         <textarea id="snippet-text" rows="7" placeholder="Paste or type anything..."></textarea>
-        <div class="actions">
-          <button id="send-snippet" class="primary" type="button">Start text stream</button>
-        </div>
+      </div>
+
+      <div class="actions" style="margin-top: 1rem; display: flex; justify-content: center;">
+        <button id="start-btn" class="primary" type="button" disabled style="font-size: 1.1rem; padding: 0.75rem 2rem;">Start Broadcast</button>
       </div>
 
       <div class="qr-panel stream-panel stage" id="stage" hidden>

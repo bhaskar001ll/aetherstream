@@ -350,6 +350,15 @@ async function finish(container: Uint8Array, hashOk: boolean, seconds: number) {
       image.alt = `Received file preview: ${file.name}`;
       image.src = url;
       result.append(image);
+    } else if (file.type.startsWith("video/")) {
+      const videoEl = document.createElement("video");
+      videoEl.className = "received";
+      videoEl.controls = true;
+      videoEl.src = url;
+      videoEl.style.width = "100%";
+      videoEl.style.marginTop = "15px";
+      videoEl.style.borderRadius = "8px";
+      result.append(videoEl);
     }
   } catch (error) {
     // Everything is already torn down by this point, so the only way back to a
@@ -423,21 +432,38 @@ function showSnippet(text: string) {
   heading.className = "done";
   heading.textContent = "Text received";
 
-  const body = document.createElement("p");
+  const body = document.createElement("textarea");
   body.className = "received-note";
-  body.textContent = text;
+  body.value = text;
+  body.readOnly = true;
+  body.style.width = "100%";
+  body.style.minHeight = "150px";
+  body.style.padding = "10px";
+  body.style.borderRadius = "8px";
+  body.style.background = "#1e293b";
+  body.style.color = "#f8fafc";
+  body.style.border = "1px solid #334155";
+  body.style.marginTop = "10px";
 
   const actions = document.createElement("div");
   actions.className = "note-actions";
+  actions.style.display = "flex";
+  actions.style.gap = "10px";
+  actions.style.marginTop = "10px";
+
   const copy = document.createElement("button");
   copy.type = "button";
-  copy.className = "text-button";
-  copy.textContent = "Copy";
+  copy.className = "text-button primary";
+  copy.style.background = "#3b82f6";
+  copy.style.color = "white";
+  copy.style.padding = "0.5rem 1rem";
+  copy.style.borderRadius = "6px";
+  copy.textContent = "Copy text";
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(text);
-      copy.textContent = "Copied";
-      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+      copy.textContent = "Copied!";
+      setTimeout(() => { copy.textContent = "Copy text"; }, 1500);
     } catch {
       copy.textContent = "Copy failed";
     }

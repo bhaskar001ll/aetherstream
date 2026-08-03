@@ -48,13 +48,13 @@ const DEMO = import.meta.env.VITE_DEMO === "1";
 
 const canvas = document.getElementById("qr") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLDivElement;
-const specs = document.getElementById("specs")!;
+const specs = document.getElementById("specs");
 const cfgFile = document.getElementById("cfg-file") as HTMLInputElement;
 const filePickerLabel = document.getElementById("file-picker-label")!;
-const toolTitle = document.getElementById("tool-title")!;
+const toolTitle = document.getElementById("tool-title");
 const snippetText = document.getElementById("snippet-text") as HTMLTextAreaElement;
 const snippetLabel = document.getElementById("snippet-label")!;
-const sendSnippetBtn = document.getElementById("send-snippet") as HTMLButtonElement;
+const startBtn = document.getElementById("start-btn") as HTMLButtonElement;
 const paneFile = document.getElementById("pane-file")!;
 const paneSnippet = document.getElementById("pane-snippet")!;
 const paneDemo = document.getElementById("pane-demo")!;
@@ -73,11 +73,17 @@ let selectedFile: {
   compression: "none" | "gzip";
   transmittedSize: number;
 } | null = null;
+let currentSession: {
+  sessionId: number;
+  blockLen: number;
+  nextSeq: number;
+  file: typeof selectedFile;
+} | null = null;
 let generation = 0; // bumped on every restart; stale loops see it and die
 let resizeDisplay: (() => void) | null = null;
 
-const specsLine = statusLine(specs);
-const setStatus = specsLine.setStatus;
+const specsLine = specs ? statusLine(specs) : null;
+const setStatus = specsLine ? specsLine.setStatus : () => {};
 
 /**
  * Errors also hide the stage — a stale QR stream pulsing away under a
@@ -89,11 +95,24 @@ const setStatus = specsLine.setStatus;
  */
 function showError(message: string): void {
   stage.hidden = true;
-  specsLine.showError(message);
+  if (specsLine) specsLine.showError(message);
+  else alert(message);
 }
 
-function currentMode(): "file" | "snippet" {
-  return modeInputs.find((input) => input.checked)?.value === "snippet" ? "snippet" : "file";
+function currentMode(): "file" | "snippet" | null {
+  const checked = modeInputs.find((input) => input.checked);
+  return checked ? (checked.value as "file" | "snippet") : null;
+}
+
+function updateStartBtn() {
+  const mode = currentMode();
+  if (mode === "file") {
+    startBtn.disabled = !cfgFile.files?.length;
+  } else if (mode === "snippet") {
+    startBtn.disabled = snippetText.value.trim().length === 0;
+  } else {
+    startBtn.disabled = true;
+  }
 }
 
 /** Switching what we're sending kills any stream in flight and clears the stage. */
@@ -116,11 +135,31 @@ function applyMode(): void {
   paneFile.hidden = mode !== "file";
   paneSnippet.hidden = mode !== "snippet";
   // The heading used to say "Send a file" even with Text snippet selected.
-  toolTitle.textContent = mode === "snippet" ? "Send text" : "Send a file";
-  setStatus(mode === "snippet" ? "Paste or type some text to begin" : "Choose a file to begin");
-  // A file left in the picker survives the switch, so re-arm it rather than
-  // leaving a filename on screen next to "choose a file to begin".
-  if (mode === "file" && cfgFile.files?.[0]) void selectFile();
+  if (toolTitle) {
+    if (mode === "snippet") toolTitle.textContent = "Send text";
+    else if (mode === "file") toolTitle.textContent = "Send a file";
+    else toolTitle.textContent = "Select a mode";
+  }
+  
+  let statusText = "Choose a mode above to begin";
+  if (mode === "snippet") statusText = "Paste or type some text to begin";
+  else if (mode === "file") statusText = "Choose a file to begin";
+  setStatus(statusText);
+  
+  const fileLabel = document.querySelector('input[value="file"]')!.parentElement!;
+  const snippetLabel = document.querySelector('input[value="snippet"]')!.parentElement!;
+  if (mode === "file") {
+    fileLabel.className = 'mode-card primary';
+    snippetLabel.className = 'mode-card secondary';
+  } else if (mode === "snippet") {
+    fileLabel.className = 'mode-card secondary';
+    snippetLabel.className = 'mode-card primary';
+  } else {
+    fileLabel.className = 'mode-card secondary';
+    snippetLabel.className = 'mode-card secondary';
+  }
+
+  updateStartBtn();
 }
 
 /**
@@ -192,6 +231,15 @@ async function selectSnippet(): Promise<void> {
 }
 
 async function main() {
+  // Apply mobile-specific defaults before any listeners or states are initialized
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+  if (isMobile) {
+    cfgGrid.value = "1x1";
+    cfgFps.value = "20";
+    cfgBytes.value = "1850";
+    cfgEcc.value = "L";
+  }
+
   // Both bounds come from MAX_SNIPPET_BYTES so they can't drift apart. maxLength
   // counts UTF-16 units and the real check counts UTF-8 bytes, which are never
   // fewer — so this is a loose guard and packSnippet() remains authoritative.
@@ -205,15 +253,35 @@ async function main() {
       button.addEventListener("click", () => void selectDemo(button.dataset.demo!));
     }
   } else {
-    cfgFile.addEventListener("change", () => void selectFile());
-    sendSnippetBtn.addEventListener("click", () => void selectSnippet());
-    for (const input of modeInputs) input.addEventListener("change", applyMode);
+    cfgFile.addEventListener("change", updateStartBtn);
+    snippetText.addEventListener("input", updateStartBtn);
+    startBtn.addEventListener("click", () => {
+      if (currentMode() === "file") {
+        void selectFile();
+      } else {
+        void selectSnippet();
+      }
+    });
+    
+    const fileLabel = document.querySelector('input[value="file"]')!.parentElement!;
+    const snippetLabel = document.querySelector('input[value="snippet"]')!.parentElement!;
+    fileLabel.addEventListener("click", () => {
+      document.querySelector<HTMLInputElement>('input[value="file"]')!.checked = true;
+      applyMode();
+    });
+    snippetLabel.addEventListener("click", () => {
+      document.querySelector<HTMLInputElement>('input[value="snippet"]')!.checked = true;
+      applyMode();
+    });
   }
   applyMode();
   window.addEventListener("resize", () => resizeDisplay?.());
-  for (const el of [cfgFps, cfgBytes, cfgEcc, cfgSize, cfgGrid]) {
-    el.addEventListener("change", () => void startStream());
+  for (const el of [cfgFps, cfgBytes, cfgEcc, cfgGrid]) {
+    el.addEventListener("input", () => void startStream());
   }
+  cfgSize.addEventListener("input", () => {
+    if (resizeDisplay) resizeDisplay();
+  });
   await requestScreenWakeLock();
 }
 
@@ -242,8 +310,18 @@ async function startStream(revealStage = false) {
   const ecc = cfgEcc.value as "L" | "M" | "Q" | "H";
   const displayPx = Number(cfgSize.value);
 
-  const sessionId = (Math.floor(Math.random() * 0xffff) + 1) & 0xffff;
   const blockLen = blockLength(frameBytes);
+  let sessionId: number;
+  let nextSeq = 0;
+
+  if (currentSession && currentSession.file === selectedFile && currentSession.blockLen === blockLen) {
+    sessionId = currentSession.sessionId;
+    nextSeq = currentSession.nextSeq;
+  } else {
+    sessionId = (Math.floor(Math.random() * 0xffff) + 1) & 0xffff;
+  }
+  currentSession = { sessionId, blockLen, nextSeq, file: selectedFile };
+
   // Keep selectedFile on this path — raising bytes/frame back up is the fix,
   // and dropping the pick would hide that.
   if (!fitsInOneStream(payload.length, frameBytes)) {
@@ -275,7 +353,6 @@ async function startStream(revealStage = false) {
   let scale = 1;
   const staging = document.createElement("canvas");
   const queue: (ImageData | ImageData[])[] = [];
-  let nextSeq = 0;
   stage.hidden = false;
 
   const isGrid = cfgGrid?.value === "2x2";
@@ -305,11 +382,15 @@ async function startStream(revealStage = false) {
     canvas.height = total * scale;
     canvas.style.width = `${(total * scale) / dpr}px`;
     canvas.style.height = `${(total * scale) / dpr}px`;
+    const ctx = canvas.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(staging, 0, 0, canvas.width, canvas.height);
   };
 
   const createSingleQr = () => {
     const bytes = packFrame({ ...header, seq: nextSeq }, encoder.encode(nextSeq));
     nextSeq++;
+    if (currentSession) currentSession.nextSeq = nextSeq;
     const qr = QRCode.create([{ data: bytes, mode: "byte" } as unknown as QRCode.QRCodeSegment], {
       errorCorrectionLevel: ecc,
       version,
