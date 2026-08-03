@@ -274,7 +274,7 @@ async function startStream(revealStage = false) {
   let modules = 0;
   let scale = 1;
   const staging = document.createElement("canvas");
-  const queue: ImageData[] = [];
+  const queue: (ImageData | ImageData[])[] = [];
   let nextSeq = 0;
   stage.hidden = false;
 
@@ -323,30 +323,10 @@ async function startStream(revealStage = false) {
     return new ImageData(new Uint8ClampedArray(raster.pixels.buffer), raster.size, raster.size);
   };
 
-  const makeFrame = (): ImageData => {
+  const makeFrame = (): ImageData | ImageData[] => {
     if (isGrid) {
       // 2x2 grid
       const qrs = [createSingleQr(), createSingleQr(), createSingleQr(), createSingleQr()];
-      const size = qrs[0].width;
-      const combined = new ImageData(size * 2, size * 2);
-      
-      const copyToCombined = (src: ImageData, offsetX: number, offsetY: number) => {
-        for (let y = 0; y < size; y++) {
-          for (let x = 0; x < size; x++) {
-            const srcIdx = (y * size + x) * 4;
-            const destIdx = ((y + offsetY) * (size * 2) + (x + offsetX)) * 4;
-            combined.data[destIdx] = src.data[srcIdx];
-            combined.data[destIdx + 1] = src.data[srcIdx + 1];
-            combined.data[destIdx + 2] = src.data[srcIdx + 2];
-            combined.data[destIdx + 3] = src.data[srcIdx + 3];
-          }
-        }
-      };
-
-      copyToCombined(qrs[0], 0, 0);
-      copyToCombined(qrs[1], size, 0);
-      copyToCombined(qrs[2], 0, size);
-      copyToCombined(qrs[3], size, size);
       
       if (!resizeDisplay) {
         sizeCanvas();
@@ -354,7 +334,7 @@ async function startStream(revealStage = false) {
         if (revealStage) scrollStageIntoView();
         setStatus(`4x Grid · ${txFps} FPS · ${frameBytes} bytes/frame · V${version} · ECC ${ecc}`);
       }
-      return combined;
+      return qrs;
     } else {
       const single = createSingleQr();
       if (!resizeDisplay) {
@@ -397,13 +377,22 @@ async function startStream(revealStage = false) {
     if (gen !== generation || generatorFailed) return;
     requestAnimationFrame(tick);
     if (now < nextAt) return;
-    const img = queue.shift();
+    const item = queue.shift();
     pump(1);
-    if (!img) {
+    if (!item) {
       nextAt = now + interval;
       return;
     }
-    staging.getContext("2d")!.putImageData(img, 0, 0);
+    const ctxStaging = staging.getContext("2d")!;
+    if (Array.isArray(item)) {
+       const size = item[0].width;
+       ctxStaging.putImageData(item[0], 0, 0);
+       ctxStaging.putImageData(item[1], size, 0);
+       ctxStaging.putImageData(item[2], 0, size);
+       ctxStaging.putImageData(item[3], size, size);
+    } else {
+       ctxStaging.putImageData(item, 0, 0);
+    }
     const ctx = canvas.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(staging, 0, 0, canvas.width, canvas.height);
