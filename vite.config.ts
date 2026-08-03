@@ -73,7 +73,6 @@ const TOKENS = {
   MAX_FILE_LABEL,
   MAX_SNIPPET_LABEL,
   SITE_URL,
-  OG_IMAGE: new URL("og.png", SITE_URL).href,
   TX_FPS_OPTIONS: selectOptions(TX_FPS_OPTIONS, DEFAULT_TX_FPS),
   FRAME_BYTES_OPTIONS: selectOptions(FRAME_BYTES_OPTIONS, DEFAULT_FRAME_BYTES),
   APP_VERSION: pkg.version,
@@ -121,7 +120,7 @@ export default defineConfig(({ mode }) => {
         registerType: "autoUpdate",
         // We inject our own registration — see rootPwaHead().
         injectRegister: false,
-        includeAssets: ["success.png", "success-2mb.png"],
+        includeAssets: ["muffin_logo.svg"],
         manifest: {
           name: "Muffin Optical Transfer",
           short_name: "Muffin",
@@ -131,7 +130,7 @@ export default defineConfig(({ mode }) => {
           background_color: "#070a11",
           display: "standalone",
           start_url: "./",
-          icons: [{ src: "success.png", sizes: "512x512", type: "image/png", purpose: "any" }],
+          icons: [{ src: "muffin_logo.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" }],
         },
         workbox: {
           // Without this a rebuilt site serves stale pages indefinitely.
