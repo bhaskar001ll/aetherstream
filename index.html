@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>AetherStream by Bhaskar</title>
+    <link rel="stylesheet" href="./core/style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">AETHERSTREAM BY BHASKAR</p>
+          <h1>Air-gapped optical transfer</h1>
+          <p class="subtitle">Broadcast encrypted QR packets from one screen to another camera with a repeatable live stream.</p>
+        </div>
+        <div class="hero-badge">AIR-GAP SECURE</div>
+      </header>
+
+      <section class="card home-grid">
+        <article class="mode-card mode-panel send-panel" onclick="window.location.href='./broadcaster/'" style="cursor: pointer;">
+          <div class="mode-icon">📡</div>
+          <h3>SEND MODE</h3>
+          <p>Broadcast a pre-rendered QR stream using 2x2 Muffin layout.</p>
+          <button class="ghost action-btn">Initiate broadcast →</button>
+        </article>
+        
+        <article class="mode-card mode-panel receive-panel" onclick="window.location.href='./scanner/'" style="cursor: pointer;">
+          <div class="mode-icon">🔲</div>
+          <h3>RECEIVE MODE</h3>
+          <p>Generate QR capture mode and decode the live light stream.</p>
+          <button class="ghost action-btn">Open receiver →</button>
+        </article>
+      </section>
+      
+      <p style="margin-top:20px; color:#94a3b8; font-size: 0.85rem; text-align:center;">
+        Designed & Authored by Bhaskar.
+      </p>
+    </main>
+  </body>
+</html>

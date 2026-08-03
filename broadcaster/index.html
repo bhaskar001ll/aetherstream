@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AetherStream by Bhaskar — Send</title>
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" href="../muffin_logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="../core/style.css" />
+  </head>
+  <body class="app-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">AETHERSTREAM</p>
+        <h1>Broadcast Transmission</h1>
+        <p class="subtitle">Encode and broadcast live QR chunks over screen light.</p>
+      </div>
+      <div class="hero-badge" onclick="window.location.href='../'" style="cursor: pointer;">HOME</div>
+    </header>
+
+    <main class="card">
+      <div class="view-header">
+        <div>
+          <h2>SEND MODE</h2>
+          <p class="small-label">Screen to camera. No network in between.</p>
+        </div>
+      </div>
+
+      <div class="status-banner blue">
+        <span>STREAMING QR</span>
+        <strong id="specs" class="status-line">Choose a file to begin</strong>
+      </div>
+
+      <div class="mode-grid mode-picker" id="mode-picker" role="radiogroup" aria-label="What to send">
+        <label class="mode-card primary" style="text-align: center;">
+          <input type="radio" name="send-mode" value="file" checked style="display:none;" />
+          <span style="color: white; font-weight: bold;">File</span>
+        </label>
+        <label class="mode-card secondary" style="text-align: center;">
+          <input type="radio" name="send-mode" value="snippet" style="display:none;" />
+          <span style="color: white; font-weight: bold;">Text snippet</span>
+        </label>
+      </div>
+
+      <div class="field-row" id="pane-file">
+        <label class="field-label" id="file-picker-label" for="cfg-file">Any file · up to %MAX_FILE_LABEL%</label>
+        <input id="cfg-file" type="file" />
+      </div>
+
+      <div class="demo-picker" id="pane-demo" hidden>
+        <span class="field-label">Demo payload</span>
+        <div class="button-row demo-buttons">
+          <button type="button" class="ghost" data-demo="success.png">512 KB image</button>
+          <button type="button" class="ghost" data-demo="success-2mb.png">2 MB image</button>
+        </div>
+      </div>
+
+      <div class="field-row note-composer" id="pane-snippet" hidden>
+        <label for="snippet-text" class="field-label" id="snippet-label">Text to send</label>
+        <textarea id="snippet-text" rows="7" placeholder="Paste or type anything..."></textarea>
+        <div class="actions">
+          <button id="send-snippet" class="primary" type="button">Start text stream</button>
+        </div>
+      </div>
+
+      <div class="qr-panel stream-panel stage" id="stage" hidden>
+        <canvas id="qr" width="16" height="16" role="img" aria-label="Live QR broadcast"></canvas>
+      </div>
+
+      <div class="session-box settings">
+        <span class="label">Transfer settings</span>
+        <div class="button-row">
+          <label class="field-label">Layout
+            <select id="cfg-grid" class="fps-select">
+              <option value="2x2" selected>4× Grid (2×2)</option>
+              <option value="1x1">1× Single QR</option>
+            </select>
+          </label>
+          <label class="field-label">FPS
+            <select id="cfg-fps" class="fps-select">%TX_FPS_OPTIONS%</select>
+          </label>
+          <label class="field-label">Bytes/Frame
+            <select id="cfg-bytes" class="fps-select">%FRAME_BYTES_OPTIONS%</select>
+          </label>
+          <label class="field-label">ECC
+            <select id="cfg-ecc" class="fps-select">
+              <option selected>L</option><option>M</option><option>Q</option><option>H</option>
+            </select>
+          </label>
+          <label class="field-label">Size
+            <input id="cfg-size" type="range" min="300" max="1200" step="50" value="900" />
+          </label>
+        </div>
+      </div>
+
+      <p style="margin-top:20px; color:#94a3b8; font-size: 0.85rem; text-align:center;">
+        Designed & Authored by Bhaskar.
+      </p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
