@@ -14,7 +14,7 @@ import {
   expectedFountainOverhead,
   formatDuration,
 } from "../core/progress";
-import { createDecodeWorker } from "./worker-factory";
+import { createDecodeWorker } from "../scanner/worker-factory";
 import { NoSignalHintTimer } from "../core/no-signal";
 import { DecodeWorkerPool } from "../core/worker-pool";
 import { isSnippet, snippetText } from "../core/snippet";
@@ -75,13 +75,62 @@ const pool = new DecodeWorkerPool(createDecodeWorker, (bytes) => onDecoded(bytes
 const captureTimes: number[] = [];
 const decodeTimes: number[] = [];
 
-startBtn.onclick = () => void start();
+const videoUpload = document.getElementById("video-upload") as HTMLInputElement;
+const uploadBtn = document.getElementById("upload-btn") as HTMLButtonElement;
+
+uploadBtn.addEventListener("click", () => {
+  videoUpload.click();
+});
+
+videoUpload.addEventListener('change', async (e) => {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  
+  const url = URL.createObjectURL(file);
+  
+  if (file.type.startsWith('image/')) {
+    preview.style.display = "block";
+    metricsEl.style.display = "grid";
+    if (diagnosticsEl) diagnosticsEl.style.display = "block";
+    pool.resize(Number(cfgWorkers?.value || 2));
+    
+    const img = new Image();
+    img.onload = () => {
+      grab.width = img.width;
+      grab.height = img.height;
+      const ctx = grab.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, img.width, img.height);
+      pool.submit({ id: frameId++, buf: data.data.buffer, w: img.width, h: img.height }, [data.data.buffer]);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+    return;
+  }
+  
+  // Video handling
+  preview.style.display = "block";
+  metricsEl.style.display = "grid";
+  if (diagnosticsEl) diagnosticsEl.style.display = "block";
+  
+  video.src = url;
+  video.muted = true;
+  video.loop = true; // Loop so it keeps scanning if it misses something
+  video.playbackRate = 0.5; // Smooth 50% speed to give decode workers ample time per frame
+  
+  pool.resize(Number(cfgWorkers?.value || 2));
+  
+  noSignal.cameraStarted(performance.now());
+  captureGen++;
+  
+  await video.play().catch(() => undefined);
+  scheduleFrame(captureGen);
+  statsTimer = setInterval(updateStats, 500);
+  await requestScreenWakeLock();
+});
 
 const { setStatus, showError } = statusLine(stats);
 
-/** By the time a transfer ends the camera, worker pool and stats timer are all
- *  torn down and `done` is latched, so a reload is the honest way back to a
- *  live receiver — and it drops the recovered bytes from memory on the way. */
 function restartButton(label: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -91,137 +140,16 @@ function restartButton(label: string): HTMLButtonElement {
   return button;
 }
 
-/** Put the page back the way it was so a refused camera can be retried without
- *  a reload. Tapping "Block" by accident on the permission prompt is easy, and
- *  a dead page with no button is a bad answer to it. */
-function offerRetry(message: string) {
-  startBtn.disabled = false;
-  startBtn.style.display = "";
-  startBtn.textContent = "Start camera";
-  preview.style.display = "none";
-  metricsEl.style.display = "none";
-  if (diagnosticsEl) diagnosticsEl.style.display = "none";
-  showError(message);
-}
-
-async function start() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    // On insecure origins the API doesn't exist AT ALL — this is the plain-
-    // http-over-LAN case. localhost is exempt; other hosts need https.
-    showError(
-      "camera needs a secure context — this page must be served over https to " +
-        "use the camera from another device. `npm run dev` already is.",
-    );
-    return;
-  }
-  const captureWidth = Number(cfgWidth.value);
-  const captureFps = Number(cfgCapFps.value);
-  // Nothing on the page changes until the camera is actually running: the
-  // error paths below all have to leave a usable Start button behind.
-  startBtn.disabled = true;
-  startBtn.textContent = "Starting…";
-  const base: MediaTrackConstraints = {
-    facingMode: "environment",
-    width: { ideal: captureWidth },
-    height: { ideal: Math.round((captureWidth * 3) / 4) },
-  };
-  try {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { ...base, frameRate: { exact: captureFps } },
-      });
-    } catch {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { ...base, frameRate: { ideal: captureFps } },
-      });
-    }
-  } catch (err) {
-    const denied = err instanceof DOMException && err.name === "NotAllowedError";
-    offerRetry(
-      denied
-        ? "camera permission denied — allow it, then tap Start camera again."
-        : `camera: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return;
-  }
-
-  startBtn.style.display = "none";
-  preview.style.display = "block";
-  metricsEl.style.display = "grid";
-  if (diagnosticsEl) diagnosticsEl.style.display = "block";
-  video.srcObject = stream;
-  await video.play().catch(() => undefined);
-  const settings = stream.getVideoTracks()[0]?.getSettings();
-  setStatus(
-    `camera ${settings?.width}×${settings?.height}@${settings?.frameRate} — searching for a stream…`,
-  );
-
-  pool.resize(Number(cfgWorkers.value));
-  reportCameraSettings();
-  if (!settingsWired) {
-    settingsWired = true;
-    for (const el of [cfgWidth, cfgCapFps, cfgWorkers]) {
-      el.addEventListener("change", () => void applyReceiveSettings());
-    }
-  }
-
-  noSignal.cameraStarted(performance.now());
-  captureGen++;
-  scheduleFrame(captureGen);
-  statsTimer = setInterval(updateStats, 500);
-  await requestScreenWakeLock();
-}
-
-/** Report what the camera actually negotiated — iOS in particular will happily
- *  hand back 30 fps after accepting a request for 60. */
-function reportCameraSettings() {
-  const track = stream?.getVideoTracks()[0];
-  if (!track) return;
-  const s = track.getSettings();
-  const askedFps = Number(cfgCapFps.value);
-  const gotFps = Math.round(s.frameRate ?? 0);
-  const fpsNote = gotFps && gotFps !== askedFps ? ` (asked ${askedFps})` : "";
-  cameraActual.textContent =
-    `camera ${s.width}×${s.height} @ ${gotFps} fps${fpsNote} · ${pool.size} decode ` +
-    `worker${pool.size === 1 ? "" : "s"} · changes apply live`;
-}
-
-async function applyReceiveSettings() {
-  // finish() has already torn the pool down — don't resurrect it.
-  if (done) return;
-  pool.resize(Number(cfgWorkers.value));
-  const track = stream?.getVideoTracks()[0];
-  if (!track) return;
-  const width = Number(cfgWidth.value);
-  try {
-    await track.applyConstraints({
-      width: { ideal: width },
-      height: { ideal: Math.round((width * 3) / 4) },
-      frameRate: { ideal: Number(cfgCapFps.value) },
-    });
-  } catch {
-    // Some devices (notably iOS) refuse a live reconfigure. Keep the stream we
-    // have rather than tearing down a transfer in progress.
-    cameraActual.textContent = "this camera refused a live change — restart to apply";
-    return;
-  }
-  reportCameraSettings();
-}
-
 type VideoRVFC = HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
 
 function scheduleFrame(gen: number) {
   if (done || gen !== captureGen) return;
-  const v = video as VideoRVFC;
   const next = () => {
     if (done || gen !== captureGen) return;
     captureFrame();
     scheduleFrame(gen);
   };
-  if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(next);
-  else requestAnimationFrame(next);
+  requestAnimationFrame(next);
 }
 
 const grab = document.createElement("canvas");
@@ -232,7 +160,7 @@ function captureFrame() {
   const vh = video.videoHeight;
   if (!vw || !vh) return;
   captureTimes.push(performance.now());
-  if (pool.busyCount === pool.size) return; // all busy — drop it, no harm done
+  if (pool.busyCount === pool.size) return; // all busy — drop frame, no harm done
   if (grab.width !== vw || grab.height !== vh) {
     grab.width = vw;
     grab.height = vh;
@@ -314,7 +242,7 @@ async function finish(container: Uint8Array, hashOk: boolean, seconds: number) {
   // Tear the whole capture pipeline down: the camera, the stats timer, and the
   // decode pool. Each worker holds its own ~940 KB zxing WASM instance, which
   // is worth reclaiming on a phone the moment the last frame is in.
-  stream?.getTracks().forEach((t) => t.stop());
+  video.pause();
   clearInterval(statsTimer);
   statsTimer = undefined;
   pool.resize(0);

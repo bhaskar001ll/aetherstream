@@ -155,7 +155,10 @@ export default defineConfig(({ mode }) => {
         input: {
           index: resolve(__dirname, "index.html"),
           send: resolve(__dirname, "broadcaster/index.html"),
+          secure: resolve(__dirname, "secure-broadcaster/index.html"),
           receive: resolve(__dirname, "scanner/index.html"),
+          offline_encoder: resolve(__dirname, "offline-encoder/index.html"),
+          offline_decoder: resolve(__dirname, "offline-decoder/index.html"),
         },
       },
     },

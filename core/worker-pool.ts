@@ -27,6 +27,7 @@ export class DecodeWorkerPool {
   constructor(
     private readonly create: () => PoolWorker,
     private readonly onDecoded: (bytes: Uint8Array) => void,
+    private readonly onWorkerFinished?: () => void,
   ) {}
 
   get size(): number {
@@ -57,6 +58,10 @@ export class DecodeWorkerPool {
           }
         } else if (bytes) {
           this.onDecoded(bytes);
+        }
+        
+        if (this.onWorkerFinished) {
+          this.onWorkerFinished();
         }
       };
       this.workers.push(worker);

@@ -35,6 +35,7 @@ import {
   type FrameHeader,
   type PackedOpticalFile,
 } from "../core/protocol";
+import { encryptPayload } from "../core/crypto";
 import { statusLine } from "../core/status-line";
 import { requestScreenWakeLock } from "../core/wake-lock";
 import { initInteractiveButtons } from "../core/interactive-buttons";
@@ -70,6 +71,8 @@ const cfgBytes = document.getElementById("cfg-bytes") as HTMLSelectElement;
 const cfgEcc = document.getElementById("cfg-ecc") as HTMLSelectElement;
 const cfgSize = document.getElementById("cfg-size") as HTMLInputElement;
 const cfgGrid = document.getElementById("cfg-grid") as HTMLSelectElement;
+const securePanel = document.getElementById("secure-panel") as HTMLDivElement;
+const securePassword = document.getElementById("secure-password") as HTMLInputElement;
 
 let selectedFile: {
   name: string;
@@ -110,13 +113,18 @@ function currentMode(): "file" | "snippet" | null {
 
 function updateStartBtn() {
   const mode = currentMode();
+  let enabled = false;
   if (mode === "file") {
-    startBtn.disabled = !cfgFile.files?.length;
+    enabled = !!cfgFile.files?.length;
   } else if (mode === "snippet") {
-    startBtn.disabled = snippetText.value.trim().length === 0;
-  } else {
-    startBtn.disabled = true;
+    enabled = snippetText.value.trim().length > 0;
   }
+  
+  if (enabled) {
+    enabled = securePassword.value.length > 0;
+  }
+  
+  startBtn.disabled = !enabled;
 }
 
 /** Switching what we're sending kills any stream in flight and clears the stage. */
@@ -135,19 +143,13 @@ function applyMode(): void {
   }
 
   const mode = currentMode();
-  
   paneFile.style.display = mode !== "file" ? "none" : "";
   paneSnippet.style.display = mode !== "snippet" ? "none" : "";
-  // The heading used to say "Send a file" even with Text snippet selected.
-  if (toolTitle) {
-    if (mode === "snippet") toolTitle.textContent = "Send text";
-    else if (mode === "file") toolTitle.textContent = "Send a file";
-    else toolTitle.textContent = "Select a mode";
-  }
+  securePanel.style.display = mode ? "" : "none";
   
   let statusText = "Choose a mode above to begin";
-  if (mode === "snippet") statusText = "Paste or type some text to begin";
-  else if (mode === "file") statusText = "Choose a file to begin";
+  if (mode === "snippet") statusText = "Paste or type some text and enter a password to begin";
+  else if (mode === "file") statusText = "Choose a file and enter a password to begin";
   setStatus(statusText);
   
   if (mode === "file") {
@@ -181,7 +183,15 @@ async function startSelection(
   stage.hidden = true;
   setStatus(status);
   try {
-    const { name, size, packed } = await prepare();
+    let { name, size, packed } = await prepare();
+    
+    setStatus(`encrypting payload...`);
+    const password = securePassword.value;
+    if (!password) throw new Error("Encryption password is required.");
+    const ciphertext = await encryptPayload(password, packed.container);
+    packed = await packFile("encrypted.bin", "application/x-aether-encrypted", ciphertext);
+    name = "Encrypted Payload";
+    size = packed.originalSize;
     
     if (selectionGeneration !== generation) return;
     selectedFile = {
@@ -258,6 +268,7 @@ async function main() {
   } else {
     cfgFile.addEventListener("change", updateStartBtn);
     snippetText.addEventListener("input", updateStartBtn);
+    securePassword.addEventListener("input", updateStartBtn);
     
     startBtn.addEventListener("click", () => {
       if (currentMode() === "file") {

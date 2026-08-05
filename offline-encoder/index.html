@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AetherStream by Bhaskar — Send</title>
+    <title>AetherStream by Bhaskar — File to QR Video</title>
     <meta name="theme-color" content="#0f172a" />
     <link rel="icon" href="../muffin_logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="../core/style.css" />
@@ -21,8 +21,8 @@
     <main class="card">
       <div class="view-header">
         <div>
-          <h2 id="tool-title">SEND MODE</h2>
-          <p class="small-label">Screen to camera. No network in between.</p>
+          <h2 id="tool-title">FILE TO QR VIDEO</h2>
+          <p class="small-label">Convert a file offline to an encrypted WebM video.</p>
         </div>
       </div>
 
@@ -47,12 +47,24 @@
         <input id="cfg-file" type="file" />
       </div>
 
+      <div class="field-row" id="secure-panel">
+        <label for="secure-password" class="field-label" style="color: #10b981;">Encryption Password</label>
+        <input type="password" id="secure-password" placeholder="Enter password to encrypt..." style="border: 1px solid #10b981; color: white;" />
+      </div>
+
       <div class="actions" style="margin-top: 1rem; display: flex; justify-content: center;">
-        <button id="start-btn" class="primary" type="button" disabled style="font-size: 1.1rem; padding: 0.75rem 2rem;">Start Broadcast</button>
+        <button id="start-btn" class="primary" type="button" disabled style="font-size: 1.1rem; padding: 0.75rem 2rem;">Generate Video</button>
+      </div>
+
+      <div class="field-row" id="progress-panel" hidden style="margin-top: 1rem;">
+        <label class="field-label" id="progress-status" style="color: #10b981;">Generating frames...</label>
+        <div style="width: 100%; background: #1e293b; border-radius: 8px; height: 16px; overflow: hidden;">
+          <div id="progress-bar" style="width: 0%; height: 100%; background: #10b981; transition: width 0.2s;"></div>
+        </div>
       </div>
 
       <div class="qr-panel stream-panel stage" id="stage" hidden>
-        <canvas id="qr" width="16" height="16" role="img" aria-label="Live QR broadcast"></canvas>
+        <canvas id="qr" width="16" height="16" role="img" aria-label="QR generation"></canvas>
       </div>
 
       <div class="session-box settings">

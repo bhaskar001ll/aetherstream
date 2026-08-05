@@ -35,6 +35,7 @@ import {
   type FrameHeader,
   type PackedOpticalFile,
 } from "../core/protocol";
+import { encryptPayload } from "../core/crypto";
 import { statusLine } from "../core/status-line";
 import { requestScreenWakeLock } from "../core/wake-lock";
 import { initInteractiveButtons } from "../core/interactive-buttons";
@@ -70,6 +71,12 @@ const cfgBytes = document.getElementById("cfg-bytes") as HTMLSelectElement;
 const cfgEcc = document.getElementById("cfg-ecc") as HTMLSelectElement;
 const cfgSize = document.getElementById("cfg-size") as HTMLInputElement;
 const cfgGrid = document.getElementById("cfg-grid") as HTMLSelectElement;
+const securePanel = document.getElementById("secure-panel") as HTMLDivElement;
+const securePassword = document.getElementById("secure-password") as HTMLInputElement;
+
+const progressPanel = document.getElementById("progress-panel") as HTMLDivElement;
+const progressBar = document.getElementById("progress-bar") as HTMLDivElement;
+const progressStatus = document.getElementById("progress-status") as HTMLLabelElement;
 
 let selectedFile: {
   name: string;
@@ -110,13 +117,18 @@ function currentMode(): "file" | "snippet" | null {
 
 function updateStartBtn() {
   const mode = currentMode();
+  let enabled = false;
   if (mode === "file") {
-    startBtn.disabled = !cfgFile.files?.length;
+    enabled = !!cfgFile.files?.length;
   } else if (mode === "snippet") {
-    startBtn.disabled = snippetText.value.trim().length === 0;
-  } else {
-    startBtn.disabled = true;
+    enabled = snippetText.value.trim().length > 0;
   }
+  
+  if (enabled) {
+    enabled = securePassword.value.length > 0;
+  }
+  
+  startBtn.disabled = !enabled;
 }
 
 /** Switching what we're sending kills any stream in flight and clears the stage. */
@@ -135,19 +147,13 @@ function applyMode(): void {
   }
 
   const mode = currentMode();
-  
   paneFile.style.display = mode !== "file" ? "none" : "";
   paneSnippet.style.display = mode !== "snippet" ? "none" : "";
-  // The heading used to say "Send a file" even with Text snippet selected.
-  if (toolTitle) {
-    if (mode === "snippet") toolTitle.textContent = "Send text";
-    else if (mode === "file") toolTitle.textContent = "Send a file";
-    else toolTitle.textContent = "Select a mode";
-  }
+  securePanel.style.display = mode ? "" : "none";
   
   let statusText = "Choose a mode above to begin";
-  if (mode === "snippet") statusText = "Paste or type some text to begin";
-  else if (mode === "file") statusText = "Choose a file to begin";
+  if (mode === "snippet") statusText = "Paste or type some text and enter a password to begin";
+  else if (mode === "file") statusText = "Choose a file and enter a password to begin";
   setStatus(statusText);
   
   if (mode === "file") {
@@ -181,7 +187,15 @@ async function startSelection(
   stage.hidden = true;
   setStatus(status);
   try {
-    const { name, size, packed } = await prepare();
+    let { name, size, packed } = await prepare();
+    
+    setStatus(`encrypting payload...`);
+    const password = securePassword.value;
+    if (!password) throw new Error("Encryption password is required.");
+    const ciphertext = await encryptPayload(password, packed.container);
+    packed = await packFile("encrypted.bin", "application/x-aether-encrypted", ciphertext);
+    name = "Encrypted Payload";
+    size = packed.originalSize;
     
     if (selectionGeneration !== generation) return;
     selectedFile = {
@@ -234,14 +248,11 @@ async function selectSnippet(): Promise<void> {
 }
 
 async function main() {
-  // Apply mobile-specific defaults before any listeners or states are initialized
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-  if (isMobile) {
-    cfgGrid.value = "1x1";
-    cfgFps.value = "20";
-    cfgBytes.value = "1850";
-    cfgEcc.value = "L";
-  }
+  // Offline video encoder defaults: 2x2 Grid, 15 FPS, 2953 Bytes/frame, ECC L
+  cfgGrid.value = "2x2";
+  cfgFps.value = "15"; 
+  cfgBytes.value = "2953"; // Max block size for maximum storage efficiency
+  cfgEcc.value = "L";
 
   // Both bounds come from MAX_SNIPPET_BYTES so they can't drift apart. maxLength
   // counts UTF-16 units and the real check counts UTF-8 bytes, which are never
@@ -258,6 +269,7 @@ async function main() {
   } else {
     cfgFile.addEventListener("change", updateStartBtn);
     snippetText.addEventListener("input", updateStartBtn);
+    securePassword.addEventListener("input", updateStartBtn);
     
     startBtn.addEventListener("click", () => {
       if (currentMode() === "file") {
@@ -355,35 +367,19 @@ async function startStream(revealStage = false) {
   let scale = 1;
   const staging = document.createElement("canvas");
   const queue: (ImageData | ImageData[])[] = [];
-  stage.hidden = false;
 
   const isGrid = cfgGrid?.value === "2x2";
   const gridFactor = isGrid ? 2 : 1;
 
   const sizeCanvas = () => {
-    const dpr = window.devicePixelRatio || 1;
     const total = (modules + 2 * MARGIN) * gridFactor;
-    const containerWidth = stage.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
-    const stageStyle = getComputedStyle(stage);
-    const horizontalChrome =
-      Number.parseFloat(stageStyle.paddingLeft) +
-      Number.parseFloat(stageStyle.paddingRight) +
-      Number.parseFloat(stageStyle.borderLeftWidth) +
-      Number.parseFloat(stageStyle.borderRightWidth);
-    const cssBudget = fitQrDisplaySize(
-      window.innerWidth,
-      window.innerHeight,
-      containerWidth,
-      displayPx,
-      horizontalChrome,
-    );
-    scale = Math.max(1, Math.floor((cssBudget * dpr) / total));
+    // For offline video encoding, use a high resolution (1480px+) so QR modules (especially 2x2 grids) are at least 4-5px wide and survive WebM compression.
+    const targetPx = 1480;
+    scale = Math.max(4, Math.floor(targetPx / total));
     staging.width = total;
     staging.height = total;
     canvas.width = total * scale;
     canvas.height = total * scale;
-    canvas.style.width = `${(total * scale) / dpr}px`;
-    canvas.style.height = `${(total * scale) / dpr}px`;
     const ctx = canvas.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(staging, 0, 0, canvas.width, canvas.height);
@@ -430,42 +426,84 @@ async function startStream(revealStage = false) {
     }
   };
 
-  /**
-   * Refill the lookahead, generating at most `max` frames per call.
-   *
-   * Called once up front to fill the queue, then once per tick() — the only
-   * thing that drains it. Self-scheduling on `setTimeout(pump, 0)` instead cost
-   * ~250 wake-ups a second doing nothing once the queue was full. Capping at
-   * one frame per tick keeps the amortisation that gave us: a rAF callback
-   * never pays for more than the single frame it just consumed.
-   */
   let generatorFailed = false;
   const pump = (max = LOOKAHEAD) => {
     if (generatorFailed || gen !== generation) return;
     try {
       for (let n = 0; n < max && queue.length < LOOKAHEAD; n++) queue.push(makeFrame());
     } catch (err) {
-      // e.g. frame bytes over capacity for the chosen ECC level
       generatorFailed = true;
       showError(err instanceof Error ? err.message : String(err));
     }
   };
   pump();
 
+  // We want to generate enough frames to guarantee decoding.
+  // 3.0x the source blocks guarantees fountain codes complete even with video compression loss.
+  const blocksPerFrame = isGrid ? 4 : 1;
+  const requiredBlocks = Math.ceil(encoder.k * 3.0);
+  let targetFrames = Math.ceil(requiredBlocks / blocksPerFrame);
+  // Give a minimum duration (at least 6 seconds of video)
+  targetFrames = Math.max(targetFrames, txFps * 6);
+
+  progressPanel.hidden = false;
+  let framesRecorded = 0;
+  
+  let mimeType = 'video/webm;codecs=vp9';
+  if (!MediaRecorder.isTypeSupported(mimeType)) {
+    mimeType = 'video/webm;codecs=vp8';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'video/webm';
+    }
+  }
+  
+  const stream = canvas.captureStream(txFps);
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 10000000 });
+  const chunks: Blob[] = [];
+  
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
+  
+  recorder.onstop = () => {
+    if (gen !== generation) return;
+    progressStatus.textContent = "Done! Downloading video...";
+    progressBar.style.width = "100%";
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${name}_encrypted_qr.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTimeout(() => { progressPanel.hidden = true; }, 3000);
+  };
+  
+  recorder.start();
+
   const interval = 1000 / txFps;
   let nextAt = performance.now();
+  
   const tick = (now: number) => {
-    // generatorFailed means no frame will ever be produced again, so stop the
-    // rAF loop rather than spinning on an empty queue until a settings change.
-    if (gen !== generation || generatorFailed) return;
+    if (gen !== generation || generatorFailed) {
+      if (recorder.state === "recording") recorder.stop();
+      return;
+    }
+    
     requestAnimationFrame(tick);
+    
     if (now < nextAt) return;
+    
     const item = queue.shift();
     pump(1);
+    
     if (!item) {
       nextAt = now + interval;
       return;
     }
+    
     const ctxStaging = staging.getContext("2d")!;
     if (Array.isArray(item)) {
        const size = item[0].width;
@@ -479,9 +517,21 @@ async function startStream(revealStage = false) {
     const ctx = canvas.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(staging, 0, 0, canvas.width, canvas.height);
+    
+    framesRecorded++;
+    const progress = Math.min(100, Math.floor((framesRecorded / targetFrames) * 100));
+    progressBar.style.width = `${progress}%`;
+    progressStatus.textContent = `Generating frame ${framesRecorded} of ${targetFrames} (${txFps} FPS)...`;
+    
+    if (framesRecorded >= targetFrames) {
+      recorder.stop();
+      return;
+    }
+    
     nextAt += interval;
-    if (now - nextAt > 3 * interval) nextAt = now + interval; // fell behind — don't burst
+    if (now - nextAt > 3 * interval) nextAt = now + interval; // fell behind
   };
+  
   requestAnimationFrame(tick);
 }
 

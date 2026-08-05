@@ -9,7 +9,15 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="hero">
+      <header class="hero" style="position: relative;">
+        <div class="hamburger-container" style="position: absolute; top: 1rem; right: 1rem; z-index: 50;">
+          <button id="menu-toggle" style="background: none; border: none; color: white; font-size: 2rem; cursor: pointer;">☰</button>
+          <div id="menu-dropdown" class="card" style="display: none; position: absolute; top: 3rem; right: 0; width: 220px; flex-direction: column; gap: 0.5rem; padding: 1rem;">
+            <button onclick="window.location.href='./offline-encoder/'" class="ghost action-btn" style="justify-content: flex-start; padding: 0.75rem;">Convert File to QR</button>
+            <button onclick="window.location.href='./offline-decoder/'" class="ghost action-btn" style="justify-content: flex-start; padding: 0.75rem;">Convert QR to File</button>
+            <button id="about-btn" class="ghost action-btn" style="justify-content: flex-start; padding: 0.75rem; color: #10b981;">About Us</button>
+          </div>
+        </div>
         <div class="hero-copy">
           <p class="eyebrow">AETHERSTREAM BY BHASKAR</p>
           <h1>Air-gapped optical transfer</h1>
@@ -25,12 +33,19 @@
           <p>Broadcast a pre-rendered QR stream using 2x2 Muffin layout.</p>
           <button class="ghost action-btn">Initiate broadcast →</button>
         </article>
-        
+
         <article class="mode-card mode-panel receive-panel" onclick="window.location.href='./scanner/'" style="cursor: pointer;">
           <div class="mode-icon">🔲</div>
           <h3>RECEIVE MODE</h3>
           <p>Generate QR capture mode and decode the live light stream.</p>
           <button class="ghost action-btn">Open receiver →</button>
+        </article>
+
+        <article class="mode-card mode-panel secure-panel" onclick="window.location.href='./secure-broadcaster/'" style="cursor: pointer; border: 1px solid #10b981; grid-column: 1 / -1; align-items: center; text-align: center;">
+          <div class="mode-icon">🔒</div>
+          <h3>SECURE SEND MODE</h3>
+          <p>Encrypt files with a password before broadcasting them.</p>
+          <button class="ghost action-btn" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4);">Secure broadcast →</button>
         </article>
       </section>
       
@@ -38,5 +53,55 @@
         Designed & Authored by Bhaskar.
       </p>
     </main>
+    <div id="about-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; align-items: center; justify-content: center;">
+      <div class="card" style="width: 90%; max-width: 400px; padding: 2rem; position: relative;">
+        <button id="close-about" style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">×</button>
+        <h2 style="margin-bottom: 0.5rem; color: white;">About Us</h2>
+        <p style="color: #94a3b8; margin-bottom: 1.5rem;">Developed and maintained by Bhaskar. Secure optical transmission.</p>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <button onclick="window.location.href='mailto:muffinhead001ll@gmail.com'" class="primary" style="display: flex; justify-content: center; align-items: center; gap: 0.5rem;">✉️ Email</button>
+          <button onclick="window.open('https://github.com/bhaskar001ll', '_blank')" class="primary" style="background: #333; border-color: #333; display: flex; justify-content: center; align-items: center; gap: 0.5rem;">🐙 GitHub</button>
+          <button onclick="window.open('https://www.linkedin.com/in/bhaskar-04498122b', '_blank')" class="primary" style="background: #0077b5; border-color: #0077b5; display: flex; justify-content: center; align-items: center; gap: 0.5rem;">💼 LinkedIn</button>
+        </div>
+      </div>
+    </div>
+    
+    <script type="module">
+      import { initInteractiveButtons } from "./core/interactive-buttons.ts";
+      initInteractiveButtons();
+
+      const menuToggle = document.getElementById('menu-toggle');
+      const menuDropdown = document.getElementById('menu-dropdown');
+      const aboutBtn = document.getElementById('about-btn');
+      const aboutModal = document.getElementById('about-modal');
+      const closeAbout = document.getElementById('close-about');
+
+      menuToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menuDropdown.style.display = menuDropdown.style.display === 'none' ? 'flex' : 'none';
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!menuDropdown.contains(e.target)) {
+          menuDropdown.style.display = 'none';
+        }
+      });
+
+      aboutBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menuDropdown.style.display = 'none';
+        aboutModal.style.display = 'flex';
+      });
+
+      closeAbout.addEventListener('click', () => {
+        aboutModal.style.display = 'none';
+      });
+
+      aboutModal.addEventListener('click', (e) => {
+        if (e.target === aboutModal) {
+          aboutModal.style.display = 'none';
+        }
+      });
+    </script>
   </body>
 </html>

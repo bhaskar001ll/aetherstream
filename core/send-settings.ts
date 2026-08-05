@@ -12,12 +12,13 @@ export const DEFAULT_TX_FPS = 15;
 export const DEFAULT_FRAME_BYTES = 500;
 
 // The hint values appear in these lists by construction, not by coincidence.
-export const TX_FPS_OPTIONS: readonly number[] = [10, 15, 20, NO_SIGNAL_HINT_TX_FPS, 30, DEFAULT_TX_FPS];
+export const TX_FPS_OPTIONS: readonly number[] = [10, 15, 20, NO_SIGNAL_HINT_TX_FPS, 30, 60, DEFAULT_TX_FPS];
 export const FRAME_BYTES_OPTIONS: readonly number[] = [
   500,
   1000,
   NO_SIGNAL_HINT_FRAME_BYTES,
   1850,
   2331,
+  2953,
   DEFAULT_FRAME_BYTES,
 ];

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AetherStream by Bhaskar — Send</title>
+    <title>AetherStream by Bhaskar — Secure Send</title>
     <meta name="theme-color" content="#0f172a" />
     <link rel="icon" href="../muffin_logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="../core/style.css" />
@@ -21,7 +21,7 @@
     <main class="card">
       <div class="view-header">
         <div>
-          <h2 id="tool-title">SEND MODE</h2>
+          <h2 id="tool-title">SECURE SEND MODE</h2>
           <p class="small-label">Screen to camera. No network in between.</p>
         </div>
       </div>
@@ -45,6 +45,11 @@
       <div class="field-row" id="pane-file">
         <label class="field-label" id="file-picker-label" for="cfg-file">Any file · up to %MAX_FILE_LABEL%</label>
         <input id="cfg-file" type="file" />
+      </div>
+
+      <div class="field-row" id="secure-panel">
+        <label for="secure-password" class="field-label" style="color: #10b981;">Encryption Password</label>
+        <input type="password" id="secure-password" placeholder="Enter password to encrypt..." style="border: 1px solid #10b981; color: white;" />
       </div>
 
       <div class="actions" style="margin-top: 1rem; display: flex; justify-content: center;">
