@@ -78,6 +78,10 @@ const progressPanel = document.getElementById("progress-panel") as HTMLDivElemen
 const progressBar = document.getElementById("progress-bar") as HTMLDivElement;
 const progressStatus = document.getElementById("progress-status") as HTMLLabelElement;
 
+const downloadPanel = document.getElementById("download-panel") as HTMLDivElement;
+const resultVideo = document.getElementById("result-video") as HTMLVideoElement;
+const downloadFileBtn = document.getElementById("download-file-btn") as HTMLButtonElement;
+
 let selectedFile: {
   name: string;
   size: number;
@@ -107,6 +111,7 @@ const setStatus = specsLine ? specsLine.setStatus : () => {};
  */
 function showError(message: string): void {
   stage.hidden = true;
+  if (downloadPanel) downloadPanel.hidden = true;
   if (specsLine) specsLine.showError(message);
   else alert(message);
 }
@@ -136,6 +141,7 @@ function applyMode(): void {
   generation++;
   selectedFile = null;
   stage.hidden = true;
+  if (downloadPanel) downloadPanel.hidden = true;
 
   if (DEMO) {
     modePicker.hidden = true;
@@ -467,18 +473,45 @@ async function startStream(revealStage = false) {
   
   recorder.onstop = () => {
     if (gen !== generation) return;
-    progressStatus.textContent = "Done! Downloading video...";
+    progressStatus.textContent = "Done! Generating video file...";
     progressBar.style.width = "100%";
-    const blob = new Blob(chunks, { type: 'video/webm' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${name}_encrypted_qr.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setTimeout(() => { progressPanel.hidden = true; }, 3000);
+
+    const blob = new Blob(chunks, { type: "video/webm" });
+    const blobUrl = URL.createObjectURL(blob);
+    const sanitizedName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const fileName = `${sanitizedName}_encrypted_qr.webm`;
+
+    if (resultVideo) {
+      resultVideo.src = blobUrl;
+    }
+
+    if (downloadFileBtn) {
+      downloadFileBtn.onclick = () => {
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+    }
+
+    // Auto-trigger browser download
+    const autoLink = document.createElement("a");
+    autoLink.href = blobUrl;
+    autoLink.download = fileName;
+    document.body.appendChild(autoLink);
+    autoLink.click();
+    document.body.removeChild(autoLink);
+
+    if (downloadPanel) {
+      downloadPanel.hidden = false;
+      downloadPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    setTimeout(() => {
+      progressPanel.hidden = true;
+    }, 1000);
   };
   
   recorder.start();

@@ -11,6 +11,13 @@ Designed and authored by **Bhaskar**.
 - **Fountain Codes (Luby Transform)**: Reconstructs files seamlessly even if camera frames are dropped or the devices are briefly out of sync.
 - **Progressive Web App (PWA)**: Works entirely offline once loaded.
 
+## 📱 Android App (Standalone Offline APK)
+
+For completely offline optical file transfer on Android (without any network connection or web server), use the standalone Android app:
+- 📦 **Download APK**: [`AetherStream.apk`](./AetherStream.apk)
+
+*Note: For without network file transfer in Android, use this APK.*
+
 ## 🚀 Installation & Requirements
 
 ### System Requirements

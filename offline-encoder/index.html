@@ -69,6 +69,21 @@
         <canvas id="qr" width="16" height="16" role="img" aria-label="QR generation"></canvas>
       </div>
 
+      <div id="download-panel" class="card" hidden style="margin-top: 1.5rem; border: 1px solid #10b981; text-align: center; padding: 1.25rem; background: rgba(15, 23, 42, 0.85);">
+        <h3 style="color: #10b981; margin-bottom: 0.5rem; font-size: 1.2rem;">🎉 QR Video Ready!</h3>
+        <p id="download-status" class="small-label" style="margin-bottom: 1rem; color: #e2e8f0;">Your file has been encoded into a QR WebM video.</p>
+        
+        <div style="max-width: 100%; margin: 0 auto 1.25rem; border-radius: 8px; overflow: hidden; background: #000; border: 1px solid #334155;">
+          <video id="result-video" controls playsinline style="width: 100%; max-height: 280px; display: block;"></video>
+        </div>
+
+        <div class="actions" style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+          <button type="button" id="download-file-btn" class="primary" style="padding: 0.75rem 1.5rem; background: #10b981; border-color: #10b981; font-weight: bold; font-size: 1rem;">
+            📥 Save / Download QR Video
+          </button>
+        </div>
+      </div>
+
       <div class="session-box settings">
         <span class="label">Transfer settings</span>
         <div class="button-row">

@@ -1,5 +1,9 @@
+import { initBackNavigation } from "./navigation";
+
 export function initInteractiveButtons() {
   if (typeof window === "undefined" || !document.body) return;
+
+  initBackNavigation();
 
   // 1. Inject CSS for Ripple and Smooth Transitions
   if (!document.getElementById("interactive-btn-styles")) {
