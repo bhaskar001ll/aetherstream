@@ -50,7 +50,13 @@ export interface OpticalFile {
 
 async function digest(bytes: Uint8Array): Promise<Uint8Array> {
   const stableBytes = Uint8Array.from(bytes);
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", stableBytes));
+  let cryptoLib: any = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (!cryptoLib || !cryptoLib.subtle) {
+    // @vite-ignore
+    const nodeCrypto = await import(/* @vite-ignore */ "node:crypto");
+    cryptoLib = nodeCrypto.webcrypto || nodeCrypto;
+  }
+  return new Uint8Array(await cryptoLib.subtle.digest("SHA-256", stableBytes));
 }
 
 async function gzipAsync(bytes: Uint8Array): Promise<Uint8Array> {

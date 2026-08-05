@@ -298,34 +298,98 @@ async function finish(container: Uint8Array, hashOk: boolean, seconds: number) {
     progressLabel.textContent = "100% · file recovered";
     const kb = Math.round(file.bytes.length / 1024);
     setStatus(`${kb} KB in ${seconds.toFixed(1)} s · ${rate} KB/s · ${gzipNote}SHA-256 verified ✓`);
+
     const heading = document.createElement("div");
     heading.className = "done";
     heading.textContent = "Transfer Complete!";
-    const url = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: file.type }));
+
+    const url = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: file.type || "application/octet-stream" }));
+
     const download = document.createElement("a");
-    download.className = "download";
+    download.className = "download action-btn primary";
+    download.style.textDecoration = "none";
+    download.style.display = "inline-flex";
+    download.style.alignItems = "center";
+    download.style.gap = "6px";
     download.href = url;
     download.download = file.name;
-    download.textContent = `Save ${file.name}`;
+    download.textContent = `💾 Save ${file.name}`;
+
+    const shareBtn = document.createElement("button");
+    shareBtn.type = "button";
+    shareBtn.className = "action-btn secondary";
+    shareBtn.style.background = "#0284c7";
+    shareBtn.style.color = "white";
+    shareBtn.style.border = "none";
+    shareBtn.textContent = "↗️ Open / Share";
+    shareBtn.addEventListener("click", () => {
+      try {
+        const fileObj = new File([file.bytes], file.name, { type: file.type || "application/octet-stream" });
+        if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+          void navigator.share({
+            files: [fileObj],
+            title: file.name,
+          });
+          return;
+        }
+      } catch {
+        // Fallback to direct blob URL open
+      }
+      window.open(url, "_blank");
+    });
+
     const actions = document.createElement("div");
     actions.className = "note-actions";
-    actions.append(download, restartButton("Receive another"));
+    actions.style.display = "flex";
+    actions.style.flexWrap = "wrap";
+    actions.style.gap = "10px";
+    actions.style.marginTop = "14px";
+    actions.append(download, shareBtn, restartButton("Receive another"));
+
     result.replaceChildren(heading, actions);
+
     if (file.type.startsWith("image/")) {
+      const mediaCard = document.createElement("div");
+      mediaCard.className = "received-media-card";
+
+      const mediaHeader = document.createElement("div");
+      mediaHeader.style.color = "#7dd3fc";
+      mediaHeader.style.fontSize = "0.85rem";
+      mediaHeader.style.fontWeight = "600";
+      mediaHeader.textContent = `📷 Received Image: ${file.name}`;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "received-media-wrapper";
+
       const image = document.createElement("img");
       image.className = "received";
       image.alt = `Received file preview: ${file.name}`;
       image.src = url;
-      result.append(image);
+
+      wrapper.append(image);
+      mediaCard.append(mediaHeader, wrapper);
+      result.append(mediaCard);
     } else if (file.type.startsWith("video/")) {
+      const mediaCard = document.createElement("div");
+      mediaCard.className = "received-media-card";
+
+      const mediaHeader = document.createElement("div");
+      mediaHeader.style.color = "#7dd3fc";
+      mediaHeader.style.fontSize = "0.85rem";
+      mediaHeader.style.fontWeight = "600";
+      mediaHeader.textContent = `🎬 Received Video: ${file.name}`;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "received-media-wrapper";
+
       const videoEl = document.createElement("video");
       videoEl.className = "received";
       videoEl.controls = true;
       videoEl.src = url;
-      videoEl.style.width = "100%";
-      videoEl.style.marginTop = "15px";
-      videoEl.style.borderRadius = "8px";
-      result.append(videoEl);
+
+      wrapper.append(videoEl);
+      mediaCard.append(mediaHeader, wrapper);
+      result.append(mediaCard);
     }
   } catch (error) {
     // Everything is already torn down by this point, so the only way back to a

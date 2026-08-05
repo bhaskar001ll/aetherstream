@@ -283,6 +283,51 @@ button.ghost {
   height: auto;
 }
 
+.received-media-card {
+  margin-top: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.received-media-wrapper {
+  width: 100%;
+  max-height: 280px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(2, 6, 23, 0.85);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px;
+}
+
+.received-media-wrapper img.received {
+  max-width: 100%;
+  max-height: 250px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+}
+
+.received-media-wrapper video.received {
+  max-width: 100%;
+  max-height: 250px;
+  width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+}
+
 .stream-panel {
   width: 100%;
   max-width: 720px;

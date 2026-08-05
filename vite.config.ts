@@ -5,6 +5,14 @@ import { VitePWA } from "vite-plugin-pwa";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import * as nodeCrypto from "node:crypto";
+
+if (typeof globalThis.crypto === "undefined") {
+  (globalThis as any).crypto = nodeCrypto.webcrypto || nodeCrypto;
+}
+if (typeof global.crypto === "undefined") {
+  (global as any).crypto = nodeCrypto.webcrypto || nodeCrypto;
+}
 import { MAX_FILE_LABEL } from "./core/protocol";
 import { MAX_SNIPPET_LABEL } from "./core/snippet";
 import {
