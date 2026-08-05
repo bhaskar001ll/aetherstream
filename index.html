@@ -9,43 +9,51 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="hero" style="position: relative;">
-        <div class="hamburger-container" style="position: absolute; top: 1rem; right: 1rem; z-index: 50;">
-          <button id="menu-toggle" style="background: none; border: none; color: white; font-size: 2rem; cursor: pointer;">☰</button>
-          <div id="menu-dropdown" class="card" style="display: none; position: absolute; top: 3rem; right: 0; width: 220px; flex-direction: column; gap: 0.5rem; padding: 1rem;">
-            <button onclick="window.location.href='./offline-encoder/'" class="ghost action-btn" style="justify-content: flex-start; padding: 0.75rem;">Convert File to QR</button>
-            <button onclick="window.location.href='./offline-decoder/'" class="ghost action-btn" style="justify-content: flex-start; padding: 0.75rem;">Convert QR to File</button>
-            <button id="about-btn" class="ghost action-btn" style="justify-content: flex-start; padding: 0.75rem; color: #10b981;">About Us</button>
-          </div>
-        </div>
+      <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">AETHERSTREAM BY BHASKAR</p>
           <h1>Air-gapped optical transfer</h1>
           <p class="subtitle">Broadcast encrypted QR packets from one screen to another camera with a repeatable live stream.</p>
         </div>
-        <div class="hero-badge">AIR-GAP SECURE</div>
+        <div class="hero-actions">
+          <span class="hero-badge">AIR-GAP SECURE</span>
+          <div class="hamburger-container">
+            <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation menu">☰</button>
+            <div id="menu-dropdown" class="card menu-dropdown" style="display: none;">
+              <button onclick="window.location.href='./offline-encoder/'" class="ghost action-btn menu-item">
+                <span>🎬</span> Convert File to QR
+              </button>
+              <button onclick="window.location.href='./offline-decoder/'" class="ghost action-btn menu-item">
+                <span>📂</span> Convert QR to File
+              </button>
+              <button id="about-btn" class="ghost action-btn menu-item about-item">
+                <span>ℹ️</span> About Us
+              </button>
+            </div>
+          </div>
+        </div>
       </header>
 
-      <section class="card home-grid">
-        <article class="mode-card mode-panel send-panel" onclick="window.location.href='./broadcaster/'" style="cursor: pointer;">
+      <section class="home-grid">
+        <article class="mode-card mode-panel send-panel" onclick="window.location.href='./broadcaster/'">
           <div class="mode-icon">📡</div>
           <h3>SEND MODE</h3>
           <p>Broadcast a pre-rendered QR stream using 2x2 Muffin layout.</p>
           <button class="ghost action-btn">Initiate broadcast →</button>
         </article>
 
-        <article class="mode-card mode-panel receive-panel" onclick="window.location.href='./scanner/'" style="cursor: pointer;">
+        <article class="mode-card mode-panel receive-panel" onclick="window.location.href='./scanner/'">
           <div class="mode-icon">🔲</div>
           <h3>RECEIVE MODE</h3>
           <p>Generate QR capture mode and decode the live light stream.</p>
           <button class="ghost action-btn">Open receiver →</button>
         </article>
 
-        <article class="mode-card mode-panel secure-panel" onclick="window.location.href='./secure-broadcaster/'" style="cursor: pointer; border: 1px solid #10b981; grid-column: 1 / -1; align-items: center; text-align: center;">
+        <article class="mode-card mode-panel secure-panel" onclick="window.location.href='./secure-broadcaster/'">
           <div class="mode-icon">🔒</div>
           <h3>SECURE SEND MODE</h3>
           <p>Encrypt files with a password before broadcasting them.</p>
-          <button class="ghost action-btn" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4);">Secure broadcast →</button>
+          <button class="ghost action-btn secure-btn">Secure broadcast →</button>
         </article>
       </section>
       
