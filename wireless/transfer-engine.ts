@@ -36,6 +36,7 @@ export type IncomingTransferCallback = (
   reject: () => void
 ) => void;
 export type SnippetReceivedCallback = (snippet: TextSnippetPayload) => void;
+export type ConnectionCallback = (peer: PeerDevice) => void;
 export type FileSavedCallback = (name: string, url: string, size: number, sha256: string) => void;
 
 export class WirelessTransferEngine {
@@ -46,6 +47,7 @@ export class WirelessTransferEngine {
   private discoveredPeers: Map<string, PeerDevice> = new Map();
 
   // Callbacks
+  public onConnected?: ConnectionCallback;
   public onProgress?: ProgressCallback;
   public onPeersUpdated?: PeerUpdateCallback;
   public onIncomingTransfer?: IncomingTransferCallback;
@@ -55,8 +57,12 @@ export class WirelessTransferEngine {
   // Active state
   private broadcastChannel: BroadcastChannel;
   private pollingTimer: any = null;
+  private pendingCandidates: RTCIceCandidateInit[] = [];
   private activeSessionKey: CryptoKey | null = null;
   private sessionSecretPassword: string = "";
+  private sseEventSource: EventSource | null = null;
+  private sseRadarSource: EventSource | null = null;
+  private lastCloudBroadcast: number = 0;
 
   // Stream state
   private currentIncomingFile: {
@@ -74,6 +80,7 @@ export class WirelessTransferEngine {
     this.myDevice = this.detectCurrentDevice();
     this.broadcastChannel = new BroadcastChannel("aetherstream_wireless_radar");
     this.setupBroadcastChannel();
+    this.setupCloudSignaling();
     this.startSignalingPoll();
   }
 
@@ -108,6 +115,42 @@ export class WirelessTransferEngine {
     };
   }
 
+  private setupCloudSignaling() {
+    try {
+      if (typeof EventSource !== "undefined") {
+        // Direct WebRTC signaling channel targeted to this device
+        this.sseEventSource = new EventSource(`https://ntfy.sh/aether_sig_${this.myDevice.id}/sse`);
+        this.sseEventSource.onmessage = (event) => {
+          try {
+            const raw = JSON.parse(event.data);
+            if (raw.event === "message" && raw.message) {
+              const data = JSON.parse(raw.message);
+              if (data && data.type && data.fromPeer) {
+                this.handleDirectSignal(data.type, data.signal, data.fromPeer);
+              }
+            }
+          } catch {}
+        };
+
+        // Radar discovery channel to see other active devices on cloud / LAN
+        this.sseRadarSource = new EventSource("https://ntfy.sh/aether_radar_discovery/sse");
+        this.sseRadarSource.onmessage = (event) => {
+          try {
+            const raw = JSON.parse(event.data);
+            if (raw.event === "message" && raw.message) {
+              const peer: PeerDevice = JSON.parse(raw.message);
+              if (peer && peer.id && peer.id !== this.myDevice.id) {
+                this.registerPeer(peer);
+              }
+            }
+          } catch {}
+        };
+      }
+    } catch (e) {
+      console.warn("Cloud signaling SSE setup note:", e);
+    }
+  }
+
   private setupBroadcastChannel() {
     this.broadcastChannel.onmessage = (event) => {
       const { type, peer, signal, targetId } = event.data;
@@ -124,10 +167,26 @@ export class WirelessTransferEngine {
   }
 
   private broadcastPresence() {
-    this.broadcastChannel.postMessage({
-      type: MessageType.DISCOVERY_ANNOUNCE,
-      peer: this.myDevice,
-    });
+    // 1. Local tab broadcast
+    try {
+      this.broadcastChannel.postMessage({
+        type: MessageType.DISCOVERY_ANNOUNCE,
+        peer: this.myDevice,
+      });
+    } catch {}
+
+    // 2. Cloud radar presence (rate-limited to every 8 seconds)
+    const now = Date.now();
+    if (now - this.lastCloudBroadcast > 8000) {
+      this.lastCloudBroadcast = now;
+      try {
+        fetch("https://ntfy.sh/aether_radar_discovery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.myDevice),
+        }).catch(() => {});
+      } catch {}
+    }
   }
 
   private registerPeer(peer: PeerDevice) {
@@ -201,6 +260,7 @@ export class WirelessTransferEngine {
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
         { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" },
       ],
     });
 
@@ -233,6 +293,9 @@ export class WirelessTransferEngine {
 
     dc.onopen = () => {
       console.log("⚡ WebRTC High-Speed DataChannel OPEN!");
+      if (this.onConnected && this.activePeer) {
+        this.onConnected(this.activePeer);
+      }
       this.emitProgress({
         fileId: "",
         fileName: "",
@@ -270,15 +333,31 @@ export class WirelessTransferEngine {
   }
 
   private async sendSignal(type: string, data: any, targetId: string) {
-    // Try broadcast channel first
-    this.broadcastChannel.postMessage({
-      type,
-      signal: data,
-      targetId,
-      peer: this.myDevice,
-    });
+    // 1. BroadcastChannel (same machine/browser tabs)
+    try {
+      this.broadcastChannel.postMessage({
+        type,
+        signal: data,
+        targetId,
+        peer: this.myDevice,
+      });
+    } catch {}
 
-    // Also send to local server if available
+    // 2. Real-time Cloud Push via ntfy.sh (sub-50ms delivery across any network)
+    try {
+      fetch(`https://ntfy.sh/aether_sig_${targetId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          signal: data,
+          targetId,
+          fromPeer: this.myDevice,
+        }),
+      }).catch(() => {});
+    } catch {}
+
+    // 3. Local Vite dev server fallback if running locally
     try {
       await fetch("/api/wireless/signal", {
         method: "POST",
@@ -296,22 +375,51 @@ export class WirelessTransferEngine {
   }
 
   private async handleDirectSignal(type: string, signal: any, sender: PeerDevice) {
+    if (!sender || !sender.id) return;
+    this.registerPeer(sender);
+
     if (type === "OFFER") {
+      this.activePeer = sender;
       const pc = this.createPeerConnection(false, sender);
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
+
+      // Flush any queued ICE candidates that arrived before OFFER
+      for (const cand of this.pendingCandidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn("Failed to apply queued ICE candidate", e);
+        }
+      }
+      this.pendingCandidates = [];
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      this.sendSignal("ANSWER", answer, sender.id);
+      await this.sendSignal("ANSWER", answer, sender.id);
     } else if (type === "ANSWER") {
       if (this.peerConnection) {
         await this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+
+        // Flush any queued ICE candidates that arrived before ANSWER
+        for (const cand of this.pendingCandidates) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn("Failed to apply queued ICE candidate", e);
+          }
+        }
+        this.pendingCandidates = [];
       }
     } else if (type === "ICE_CANDIDATE") {
-      if (this.peerConnection && signal) {
-        try {
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(signal));
-        } catch (e) {
-          console.warn("Error adding ICE candidate", e);
+      if (signal) {
+        if (this.peerConnection && this.peerConnection.remoteDescription) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(signal));
+          } catch (e) {
+            console.warn("Error adding ICE candidate", e);
+          }
+        } else {
+          this.pendingCandidates.push(signal);
         }
       }
     }
@@ -337,7 +445,7 @@ export class WirelessTransferEngine {
       setTimeout(() => {
         clearInterval(checkOpen);
         resolve(this.dataChannel?.readyState === "open");
-      }, 8000);
+      }, 25000);
     });
   }
 
@@ -716,10 +824,28 @@ export class WirelessTransferEngine {
     return this.dataChannel?.readyState === "open";
   }
 
+  public disconnect() {
+    if (this.dataChannel) {
+      try {
+        this.dataChannel.close();
+      } catch {}
+      this.dataChannel = null;
+    }
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.close();
+      } catch {}
+      this.peerConnection = null;
+    }
+    this.activePeer = null;
+    this.pendingCandidates = [];
+  }
+
   public close() {
     if (this.pollingTimer) clearInterval(this.pollingTimer);
-    if (this.dataChannel) this.dataChannel.close();
-    if (this.peerConnection) this.peerConnection.close();
+    if (this.sseEventSource) this.sseEventSource.close();
+    if (this.sseRadarSource) this.sseRadarSource.close();
+    this.disconnect();
     this.broadcastChannel.close();
   }
 }

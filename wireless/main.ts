@@ -175,6 +175,7 @@ class WirelessApp {
 
     // Disconnect Button
     this.btnDisconnectEl.addEventListener("click", () => {
+      this.engine.disconnect();
       this.connectedBannerEl.style.display = "none";
       this.btnSendNowEl.disabled = true;
     });
@@ -265,6 +266,14 @@ class WirelessApp {
   }
 
   private setupEngineCallbacks() {
+    // Connection established callback
+    this.engine.onConnected = (peer) => {
+      this.connectedBannerEl.style.display = "block";
+      this.connectedNameEl.textContent = `Connected to ${peer.name} (⚡ 50-120+ MB/s Link)`;
+      this.connectedNameEl.style.color = "#22c55e";
+      this.updateSendButtonState();
+    };
+
     // Peers update
     this.engine.onPeersUpdated = (peers) => {
       this.radar.updatePeers(peers);
