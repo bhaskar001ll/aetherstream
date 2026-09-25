@@ -1,9 +1,9 @@
 /**
  * AetherStream Wireless Transfer Engine
- * High-speed peer-to-peer data transport over WebRTC DataChannel powered by PeerJS.
+ * High-speed peer-to-peer data transport over WebRTC DataChannel.
+ * Dual-stack TURN + STUN with bundled ICE candidate gathering and real-time signaling.
  */
 
-import Peer, { type DataConnection } from "peerjs";
 import {
   MessageType,
   PeerDevice,
@@ -40,16 +40,32 @@ export type SnippetReceivedCallback = (snippet: TextSnippetPayload) => void;
 export type ConnectionCallback = (peer: PeerDevice) => void;
 export type FileSavedCallback = (name: string, url: string, size: number, sha256: string) => void;
 
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  {
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
+
 export class WirelessTransferEngine {
   public myDevice: PeerDevice;
   public discoveredPeers: Map<string, PeerDevice> = new Map();
 
-  // PeerJS WebRTC Transport
-  private peer: Peer | null = null;
-  private activeConnection: DataConnection | null = null;
+  // WebRTC Native Transport
+  private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private activePeer: PeerDevice | null = null;
-  private isPeerReady: boolean = false;
+  private gatheredCandidates: RTCIceCandidateInit[] = [];
+  private pendingCandidates: RTCIceCandidateInit[] = [];
 
   // Callbacks
   public onConnected?: ConnectionCallback;
@@ -64,6 +80,7 @@ export class WirelessTransferEngine {
   private pollingTimer: any = null;
   private activeSessionKey: CryptoKey | null = null;
   private sessionSecretPassword: string = "";
+  private sseSignalSource: EventSource | null = null;
   private sseRadarSource: EventSource | null = null;
   private lastCloudBroadcast: number = 0;
 
@@ -83,9 +100,8 @@ export class WirelessTransferEngine {
     this.myDevice = this.detectCurrentDevice();
     this.broadcastChannel = new BroadcastChannel("aetherstream_wireless_radar");
     this.setupBroadcastChannel();
-    this.setupRadarDiscovery();
+    this.setupCloudSignaling();
     this.startSignalingPoll();
-    this.initPeerJs();
   }
 
   private detectCurrentDevice(): PeerDevice {
@@ -120,147 +136,25 @@ export class WirelessTransferEngine {
   }
 
   /**
-   * Initializes PeerJS cloud signaling broker over persistent WebSockets
+   * Initializes real-time cloud signaling via ntfy.sh SSE & discovery
    */
-  private initPeerJs() {
-    try {
-      if (this.peer && !this.peer.destroyed) {
-        try {
-          this.peer.destroy();
-        } catch {}
-      }
-
-      this.peer = new Peer(this.myDevice.id, {
-        debug: 1,
-        config: {
-          iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" },
-            { urls: "stun:stun.cloudflare.com:3478" },
-          ],
-        },
-      });
-
-      this.peer.on("open", (id: string) => {
-        console.log("⚡ AetherStream WebRTC Signaling Connected. Peer ID:", id);
-        this.isPeerReady = true;
-      });
-
-      this.peer.on("connection", (conn: DataConnection) => {
-        console.log("⚡ Incoming peer connection from:", conn.peer);
-        this.handleIncomingConnection(conn);
-      });
-
-      this.peer.on("disconnected", () => {
-        console.log("PeerJS broker disconnected. Attempting automatic reconnect...");
-        this.isPeerReady = false;
-        try {
-          this.peer?.reconnect();
-        } catch {}
-      });
-
-      this.peer.on("error", (err: any) => {
-        console.warn("PeerJS broker event:", err.type, err.message);
-        if (err.type === "unavailable-id") {
-          const freshId = "dev_" + Math.random().toString(36).substring(2, 9);
-          this.myDevice.id = freshId;
-          localStorage.setItem("aether_device_id", freshId);
-          this.peer?.destroy();
-          this.peer = null;
-          this.initPeerJs();
-        }
-      });
-    } catch (err) {
-      console.warn("Failed to initialize PeerJS:", err);
-    }
-  }
-
-  private async ensurePeerReady(): Promise<boolean> {
-    if (!this.peer || this.peer.destroyed) {
-      this.initPeerJs();
-    }
-
-    if (this.peer?.open) return true;
-
-    return new Promise((resolve) => {
-      let timer: any;
-      const onOpen = () => {
-        clearTimeout(timer);
-        this.peer?.off("open", onOpen);
-        resolve(true);
-      };
-
-      timer = setTimeout(() => {
-        this.peer?.off("open", onOpen);
-        resolve(!!this.peer?.open);
-      }, 5000);
-
-      this.peer?.once("open", onOpen);
-    });
-  }
-
-  private handleIncomingConnection(conn: DataConnection) {
-    const remotePeer: PeerDevice = this.discoveredPeers.get(conn.peer) || {
-      id: conn.peer,
-      name: conn.metadata?.name || `Remote (${conn.peer.slice(-4)})`,
-      os: conn.metadata?.os || "unknown",
-      browser: conn.metadata?.browser || "Browser",
-      lastSeen: Date.now(),
-    };
-
-    this.registerPeer(remotePeer);
-    this.activePeer = remotePeer;
-    this.activeConnection = conn;
-
-    conn.on("open", () => {
-      console.log("⚡ Incoming P2P link ready from:", remotePeer.name);
-      this.setupActiveConnection(conn, remotePeer);
-    });
-
-    conn.on("data", async (data: any) => {
-      await this.handleIncomingDataChannelMessage(data);
-    });
-
-    conn.on("close", () => {
-      console.log(`P2P link closed with ${remotePeer.name}`);
-      this.disconnect();
-    });
-
-    conn.on("error", (err: any) => {
-      console.warn(`Incoming P2P error from ${remotePeer.name}:`, err);
-    });
-  }
-
-  private setupActiveConnection(conn: DataConnection, peer: PeerDevice) {
-    this.activeConnection = conn;
-    this.activePeer = peer;
-
-    const dc = (conn as any).dataChannel as RTCDataChannel | undefined;
-    if (dc) {
-      this.dataChannel = dc;
-      dc.binaryType = "arraybuffer";
-    }
-
-    if (this.onConnected) {
-      this.onConnected(peer);
-    }
-
-    this.emitProgress({
-      fileId: "",
-      fileName: "",
-      bytesTransferred: 0,
-      totalBytes: 0,
-      percent: 0,
-      speedMBps: 0,
-      etaSeconds: 0,
-      state: "idle",
-    });
-  }
-
-  private setupRadarDiscovery() {
+  private setupCloudSignaling() {
     try {
       if (typeof EventSource !== "undefined") {
+        // Direct signaling channel for incoming WebRTC handshakes
+        this.sseSignalSource = new EventSource(`https://ntfy.sh/aether_sig_${this.myDevice.id}/sse`);
+        this.sseSignalSource.onmessage = (event) => {
+          try {
+            const raw = JSON.parse(event.data);
+            if (raw.event === "message" && raw.message) {
+              const data = JSON.parse(raw.message);
+              if (data && data.type && data.fromPeer) {
+                this.handleDirectSignal(data.type, data.payload, data.fromPeer);
+              }
+            }
+          } catch {}
+        };
+
         // Radar discovery channel to see other active devices on cloud / LAN
         this.sseRadarSource = new EventSource("https://ntfy.sh/aether_radar_discovery/sse");
         this.sseRadarSource.onmessage = (event) => {
@@ -276,15 +170,18 @@ export class WirelessTransferEngine {
         };
       }
     } catch (e) {
-      console.warn("Radar SSE setup note:", e);
+      console.warn("Cloud signaling SSE setup note:", e);
     }
   }
 
   private setupBroadcastChannel() {
     this.broadcastChannel.onmessage = (event) => {
-      const { peer } = event.data || {};
-      if (peer && peer.id !== this.myDevice.id) {
-        this.registerPeer(peer);
+      const { type, payload, targetId, fromPeer } = event.data || {};
+      if (fromPeer && fromPeer.id !== this.myDevice.id) {
+        this.registerPeer(fromPeer);
+      }
+      if (targetId === this.myDevice.id && type && fromPeer) {
+        this.handleDirectSignal(type, payload, fromPeer);
       }
     };
 
@@ -297,7 +194,7 @@ export class WirelessTransferEngine {
     try {
       this.broadcastChannel.postMessage({
         type: MessageType.DISCOVERY_ANNOUNCE,
-        peer: this.myDevice,
+        fromPeer: this.myDevice,
       });
     } catch {}
 
@@ -358,30 +255,255 @@ export class WirelessTransferEngine {
             }
           }
         }
+
+        // Check local queued signals
+        const sigRes = await fetch(`/api/wireless/poll-signals?peerId=${encodeURIComponent(this.myDevice.id)}`);
+        if (sigRes.ok) {
+          const queuedSignals = await sigRes.json();
+          for (const item of queuedSignals) {
+            this.handleDirectSignal(item.type, item.signal, item.fromPeer);
+          }
+        }
       } catch {
         // Dev server API not available or offline — broadcast channel continues working
       }
     }, 2000);
   }
 
+  private async sendSignal(type: string, payload: any, targetId: string) {
+    // 1. BroadcastChannel (same machine/browser tabs)
+    try {
+      this.broadcastChannel.postMessage({
+        type,
+        payload,
+        targetId,
+        fromPeer: this.myDevice,
+      });
+    } catch {}
+
+    // 2. Real-time Cloud Push via ntfy.sh (sub-100ms delivery across any network)
+    try {
+      fetch(`https://ntfy.sh/aether_sig_${targetId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          payload,
+          targetId,
+          fromPeer: this.myDevice,
+        }),
+      }).catch(() => {});
+    } catch {}
+
+    // 3. Local Vite dev server fallback if running locally
+    try {
+      await fetch("/api/wireless/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          signal: payload,
+          targetId,
+          fromPeer: this.myDevice,
+        }),
+      });
+    } catch {}
+  }
+
+  private createPeerConnection(isInitiator: boolean, remotePeer: PeerDevice): RTCPeerConnection {
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.close();
+      } catch {}
+    }
+    this.gatheredCandidates = [];
+    this.pendingCandidates = [];
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    this.peerConnection = pc;
+    this.activePeer = remotePeer;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const cJson = event.candidate.toJSON();
+        this.gatheredCandidates.push(cJson);
+        this.sendSignal("TRICKLE_ICE", cJson, remotePeer.id);
+      }
+    };
+
+    if (isInitiator) {
+      const dc = pc.createDataChannel("aether-transfer", { ordered: true });
+      this.setupDataChannel(dc, remotePeer);
+    } else {
+      pc.ondatachannel = (event) => {
+        this.setupDataChannel(event.channel, remotePeer);
+      };
+    }
+
+    return pc;
+  }
+
+  private setupDataChannel(dc: RTCDataChannel, peer: PeerDevice) {
+    this.dataChannel = dc;
+    this.activePeer = peer;
+    dc.binaryType = "arraybuffer";
+
+    dc.onopen = () => {
+      console.log(`⚡ High-speed P2P link ESTABLISHED with ${peer.name}!`);
+      if (this.onConnected) {
+        this.onConnected(peer);
+      }
+      this.emitProgress({
+        fileId: "",
+        fileName: "",
+        bytesTransferred: 0,
+        totalBytes: 0,
+        percent: 0,
+        speedMBps: 0,
+        etaSeconds: 0,
+        state: "idle",
+      });
+    };
+
+    dc.onclose = () => {
+      console.log(`P2P link closed with ${peer.name}`);
+      this.disconnect();
+    };
+
+    dc.onerror = (err) => {
+      console.warn(`P2P channel error with ${peer.name}:`, err);
+    };
+
+    dc.onmessage = async (event) => {
+      await this.handleIncomingDataChannelMessage(event.data);
+    };
+  }
+
+  private async waitForIceGathering(pc: RTCPeerConnection, maxWaitMs = 1200): Promise<void> {
+    if (pc.iceGatheringState === "complete") return;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        pc.removeEventListener("icegatheringstatechange", check);
+        resolve();
+      }, maxWaitMs);
+
+      const check = () => {
+        if (pc.iceGatheringState === "complete") {
+          clearTimeout(timer);
+          pc.removeEventListener("icegatheringstatechange", check);
+          resolve();
+        }
+      };
+      pc.addEventListener("icegatheringstatechange", check);
+    });
+  }
+
+  private async handleDirectSignal(type: string, payload: any, sender: PeerDevice) {
+    if (!sender || !sender.id) return;
+    this.registerPeer(sender);
+
+    if (type === "OFFER") {
+      this.activePeer = sender;
+      const pc = this.createPeerConnection(false, sender);
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: payload.sdp }));
+
+      // Apply all bundled candidates
+      if (Array.isArray(payload.candidates)) {
+        for (const cand of payload.candidates) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {}
+        }
+      }
+      // Apply any pending trickled candidates
+      for (const cand of this.pendingCandidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch {}
+      }
+      this.pendingCandidates = [];
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      // Wait up to 1000ms to gather local host & TURN candidates
+      await this.waitForIceGathering(pc, 1000);
+
+      const sdp = pc.localDescription?.sdp || answer.sdp;
+      await this.sendSignal("ANSWER", {
+        sdp,
+        candidates: this.gatheredCandidates,
+      }, sender.id);
+    } else if (type === "ANSWER") {
+      if (this.peerConnection) {
+        await this.peerConnection.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: payload.sdp }));
+
+        // Apply all bundled candidates
+        if (Array.isArray(payload.candidates)) {
+          for (const cand of payload.candidates) {
+            try {
+              await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+            } catch {}
+          }
+        }
+        // Apply any pending trickled candidates
+        for (const cand of this.pendingCandidates) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {}
+        }
+        this.pendingCandidates = [];
+      }
+    } else if (type === "TRICKLE_ICE") {
+      if (payload) {
+        if (this.peerConnection && this.peerConnection.remoteDescription) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(payload));
+          } catch {}
+        } else {
+          this.pendingCandidates.push(payload);
+        }
+      }
+    }
+  }
+
   /**
-   * Connects to a target peer using WebRTC DataChannel via PeerJS
+   * Connects to a target peer using WebRTC DataChannel
    */
   public async connectToPeer(targetPeer: PeerDevice): Promise<boolean> {
     if (this.isConnected() && this.activePeer?.id === targetPeer.id) {
       return true;
     }
 
-    await this.ensurePeerReady();
+    console.log(`⚡ Initiating high-speed connection to ${targetPeer.name} (${targetPeer.id})...`);
+    const pc = this.createPeerConnection(true, targetPeer);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
 
-    if (!this.peer || this.peer.destroyed) {
-      this.initPeerJs();
-      await this.ensurePeerReady();
-    }
+    // Wait up to 1000ms to gather local host & TURN relay candidates
+    await this.waitForIceGathering(pc, 1000);
+
+    const sdp = pc.localDescription?.sdp || offer.sdp;
+    await this.sendSignal("OFFER", {
+      sdp,
+      candidates: this.gatheredCandidates,
+    }, targetPeer.id);
 
     return new Promise((resolve) => {
       let resolved = false;
+      const check = setInterval(() => {
+        if (this.dataChannel && this.dataChannel.readyState === "open") {
+          clearInterval(check);
+          clearTimeout(timeout);
+          if (!resolved) {
+            resolved = true;
+            resolve(true);
+          }
+        }
+      }, 50);
+
       const timeout = setTimeout(() => {
+        clearInterval(check);
         if (!resolved) {
           resolved = true;
           const open = this.isConnected();
@@ -391,58 +513,6 @@ export class WirelessTransferEngine {
           resolve(open);
         }
       }, 25000);
-
-      try {
-        console.log(`⚡ Initiating high-speed connection to ${targetPeer.name} (${targetPeer.id})...`);
-        const conn = this.peer!.connect(targetPeer.id, {
-          reliable: true,
-          serialization: "none",
-          metadata: {
-            id: this.myDevice.id,
-            name: this.myDevice.name,
-            os: this.myDevice.os,
-            browser: this.myDevice.browser,
-          },
-        });
-
-        this.activeConnection = conn;
-        this.activePeer = targetPeer;
-
-        conn.on("open", () => {
-          console.log(`⚡ High-speed P2P link ESTABLISHED with ${targetPeer.name}!`);
-          this.setupActiveConnection(conn, targetPeer);
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            resolve(true);
-          }
-        });
-
-        conn.on("data", async (data: any) => {
-          await this.handleIncomingDataChannelMessage(data);
-        });
-
-        conn.on("close", () => {
-          console.log(`P2P link closed with ${targetPeer.name}`);
-          this.disconnect();
-        });
-
-        conn.on("error", (err: any) => {
-          console.warn(`P2P link error with ${targetPeer.name}:`, err);
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            resolve(false);
-          }
-        });
-      } catch (err) {
-        console.error("connectToPeer exception:", err);
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          resolve(false);
-        }
-      }
     });
   }
 
@@ -475,7 +545,7 @@ export class WirelessTransferEngine {
    * Sends a text snippet
    */
   public async sendSnippet(text: string, password?: string): Promise<void> {
-    if (!this.isConnected()) {
+    if (!this.isConnected() || !this.dataChannel) {
       throw new Error("Wireless channel is not connected. Connect to a peer first.");
     }
 
@@ -505,28 +575,23 @@ export class WirelessTransferEngine {
       iv: ivB64,
     };
 
-    const str = JSON.stringify({
-      type: MessageType.TEXT_SNIPPET,
-      payload,
-    });
-
-    if (this.dataChannel && this.dataChannel.readyState === "open") {
-      this.dataChannel.send(str);
-    } else if (this.activeConnection && this.activeConnection.open) {
-      this.activeConnection.send(str);
-    }
+    this.dataChannel.send(
+      JSON.stringify({
+        type: MessageType.TEXT_SNIPPET,
+        payload,
+      })
+    );
   }
 
   /**
    * Sends files with high-speed streaming chunking and backpressure control
    */
   public async sendFiles(files: File[], password?: string): Promise<void> {
-    if (!this.isConnected()) {
+    if (!this.isConnected() || !this.dataChannel) {
       throw new Error("Wireless channel is not connected. Connect to a peer first.");
     }
 
     const dc = this.dataChannel;
-    const conn = this.activeConnection;
     const totalBytesAll = files.reduce((acc, f) => acc + f.size, 0);
     let bytesSentTotal = 0;
 
@@ -569,16 +634,12 @@ export class WirelessTransferEngine {
         iv: iv ? WirelessCrypto.uint8ToBase64(iv) : undefined,
       };
 
-      const metaStr = JSON.stringify({
-        type: MessageType.FILE_METADATA,
-        payload: meta,
-      });
-
-      if (dc && dc.readyState === "open") {
-        dc.send(metaStr);
-      } else if (conn && conn.open) {
-        conn.send(metaStr);
-      }
+      dc.send(
+        JSON.stringify({
+          type: MessageType.FILE_METADATA,
+          payload: meta,
+        })
+      );
 
       // Stream file chunks with optimal backpressure
       let offset = 0;
@@ -586,7 +647,7 @@ export class WirelessTransferEngine {
 
       while (offset < file.size) {
         // Backpressure check: wait if buffer exceeds high watermark
-        if (dc && dc.bufferedAmount > BUFFER_HIGH_WATERMARK) {
+        if (dc.bufferedAmount > BUFFER_HIGH_WATERMARK) {
           await this.waitForBufferDrain(dc);
         }
 
@@ -604,11 +665,7 @@ export class WirelessTransferEngine {
         view.setUint32(0, chunkIndex, false);
         frame.set(chunkBytes, 4);
 
-        if (dc && dc.readyState === "open") {
-          dc.send(frame.buffer);
-        } else if (conn && conn.open) {
-          conn.send(frame.buffer);
-        }
+        dc.send(frame.buffer);
 
         offset += sliceBuffer.byteLength;
         bytesSentTotal += sliceBuffer.byteLength;
@@ -634,16 +691,12 @@ export class WirelessTransferEngine {
       }
 
       // Signal file completion
-      const completeStr = JSON.stringify({
-        type: MessageType.FILE_COMPLETE,
-        payload: { id: meta.id },
-      });
-
-      if (dc && dc.readyState === "open") {
-        dc.send(completeStr);
-      } else if (conn && conn.open) {
-        conn.send(completeStr);
-      }
+      dc.send(
+        JSON.stringify({
+          type: MessageType.FILE_COMPLETE,
+          payload: { id: meta.id },
+        })
+      );
     }
 
     this.emitProgress({
@@ -839,9 +892,7 @@ export class WirelessTransferEngine {
   }
 
   public isConnected(): boolean {
-    if (this.dataChannel && this.dataChannel.readyState === "open") return true;
-    if (this.activeConnection && this.activeConnection.open) return true;
-    return false;
+    return this.dataChannel?.readyState === "open";
   }
 
   public disconnect() {
@@ -851,25 +902,22 @@ export class WirelessTransferEngine {
       } catch {}
       this.dataChannel = null;
     }
-    if (this.activeConnection) {
+    if (this.peerConnection) {
       try {
-        this.activeConnection.close();
+        this.peerConnection.close();
       } catch {}
-      this.activeConnection = null;
+      this.peerConnection = null;
     }
     this.activePeer = null;
+    this.gatheredCandidates = [];
+    this.pendingCandidates = [];
   }
 
   public close() {
     if (this.pollingTimer) clearInterval(this.pollingTimer);
+    if (this.sseSignalSource) this.sseSignalSource.close();
     if (this.sseRadarSource) this.sseRadarSource.close();
     this.disconnect();
     this.broadcastChannel.close();
-    if (this.peer) {
-      try {
-        this.peer.destroy();
-      } catch {}
-      this.peer = null;
-    }
   }
 }
