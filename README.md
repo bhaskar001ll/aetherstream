@@ -42,7 +42,16 @@ Designed and authored by **Bhaskar**.
 - **True Air-Gap**: Data travels purely as light from screen to camera.
 - **2x2 Multi-QR Grid**: Displays 4 parallel QR codes simultaneously per frame.
 - **Fountain Codes (Luby Transform)**: Reconstructs files seamlessly even if camera frames drop.
-- **Standalone Android APK**: [`AetherStream.apk`](./AetherStream.apk) for completely offline mobile light decoding.
+- **Mass Optical Broadcast (1:N)**: Broadcast files from a single PC or display to thousands of receiving phones simultaneously with zero network usage.
+
+### 3. Upgraded Android Native Application (v0.3.0)
+- **Capacitor Native Android**: Complete native Android workspace in [`android/`](./android) with Camera, Local Wi-Fi, and Bluetooth permissions configured.
+- **Full Dual-Engine Support**: Seamlessly switch between Ultra Wireless (50–120+ MB/s) and Optical Air-Gap modes in the mobile app.
+- **Sync Web Assets**:
+  ```bash
+  npm run cap:sync    # Rebuilds web bundle and syncs to Android assets
+  ```
+- **Automated Cloud APK Builds**: GitHub Actions workflow automatically compiles `app-debug.apk` on every push and GitHub Release.
 
 ---
 

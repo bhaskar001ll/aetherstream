@@ -1,9 +1,9 @@
 {
   "name": "muffin-optical-transfer",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
-  "description": "Offline file and text transfer using fountain-coded animated QR codes — screen to camera, no network.",
+  "description": "Ultra-Fast Wireless (50-120+ MB/s) & Air-Gapped Optical File Transfer by Bhaskar.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "build": "tsc && vite build",
     "build:standalone": "node -e \"require('node:fs').rmSync('dist-standalone',{recursive:true,force:true})\" && tsc && vite build --mode standalone-send && vite build --mode standalone-receive",
     "build:all": "npm run build && npm run build:standalone",
+    "cap:sync": "npm run build && npx cap sync android",
     "preview": "vite preview",
     "test": "node --import tsx --test tests/*.test.ts"
   },
