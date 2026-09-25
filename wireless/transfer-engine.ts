@@ -62,13 +62,35 @@ const DEFAULT_TURN_URLS = [
   "turn:staticauth.openrelay.metered.ca:80?transport=tcp",
   "turn:staticauth.openrelay.metered.ca:443?transport=udp",
   "turn:staticauth.openrelay.metered.ca:443?transport=tcp",
+  "turns:staticauth.openrelay.metered.ca:443?transport=tcp",
 ];
+
+let cachedIceServers: { servers: RTCIceServer[]; expires: number } | null = null;
 
 /**
  * Builds short-lived TURN REST credentials. Deployments can replace every
  * default through Vite environment variables without committing secrets.
  */
 async function buildIceServers(): Promise<RTCIceServer[]> {
+  if (cachedIceServers && cachedIceServers.expires > Date.now()) {
+    return cachedIceServers.servers;
+  }
+
+  // e.g. https://<app>.metered.live/api/v1/turn/credentials?apiKey=<key>
+  const credentialsApi = import.meta.env.VITE_TURN_API_URL;
+  if (credentialsApi) {
+    try {
+      const res = await fetch(credentialsApi);
+      const servers: RTCIceServer[] = await res.json();
+      if (Array.isArray(servers) && servers.length > 0) {
+        cachedIceServers = { servers: [...STUN_SERVERS, ...servers], expires: Date.now() + 3600_000 };
+        return cachedIceServers.servers;
+      }
+    } catch (error) {
+      console.warn("[WebRTC] TURN credentials API unavailable; using defaults.", error);
+    }
+  }
+
   const configuredUrls = import.meta.env.VITE_TURN_URLS?.split(",")
     .map((url: string) => url.trim())
     .filter(Boolean);
@@ -104,8 +126,38 @@ async function buildIceServers(): Promise<RTCIceServer[]> {
   }
 }
 
+/**
+ * Chrome/Edge hide LAN IPs behind `.local` mDNS names unless the site holds
+ * camera or microphone permission, and Android cannot resolve those names.
+ * Holding the permission lets two devices on the same hotspot connect over
+ * plain host candidates even when STUN/TURN are unreachable.
+ */
+export async function hasLocalIpAccess(): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return status.state === "granted";
+  } catch {
+    return false;
+  }
+}
+
+/** Must be called from a user gesture; the camera is released immediately. */
+export async function unlockLocalIpAccess(): Promise<boolean> {
+  if (await hasLocalIpAccess()) return true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // High-availability public signaling host (zero quota restrictions)
 const SIGNAL_BASE = "https://ntfy.adminforge.de";
+
+const PRESENCE_INTERVAL_MS = 20000;
+const PEER_EXPIRY_MS = 60000;
 
 export class WirelessTransferEngine {
   public myDevice: PeerDevice;
@@ -216,14 +268,17 @@ export class WirelessTransferEngine {
         };
 
         // Radar discovery channel
-        this.sseRadarSource = new EventSource(`${SIGNAL_BASE}/aether_radar_discovery/sse`);
+        // Replay recent announcements so peers that joined earlier show up at once
+        this.sseRadarSource = new EventSource(
+          `${SIGNAL_BASE}/aether_radar_discovery/sse?since=${PEER_EXPIRY_MS / 1000}s`
+        );
         this.sseRadarSource.onmessage = (event) => {
           try {
             const raw = JSON.parse(event.data);
             if (raw.event === "message" && raw.message) {
               const peer: PeerDevice = JSON.parse(raw.message);
               if (peer && peer.id && peer.id !== this.myDevice.id) {
-                this.registerPeer(peer);
+                this.registerPeer(peer, raw.time ? raw.time * 1000 : Date.now());
               }
             }
           } catch {}
@@ -304,9 +359,9 @@ export class WirelessTransferEngine {
       });
     } catch {}
 
-    // 2. Cloud radar presence (rate-limited to every 40s)
+    // 2. Cloud radar presence (rate-limited; must stay below PEER_EXPIRY_MS)
     const now = Date.now();
-    if (now - this.lastCloudBroadcast > 40000) {
+    if (now - this.lastCloudBroadcast > PRESENCE_INTERVAL_MS) {
       this.lastCloudBroadcast = now;
       try {
         fetch(`${SIGNAL_BASE}/aether_radar_discovery`, {
@@ -318,8 +373,9 @@ export class WirelessTransferEngine {
     }
   }
 
-  private registerPeer(peer: PeerDevice) {
-    peer.lastSeen = Date.now();
+  private registerPeer(peer: PeerDevice, seenAt: number = Date.now()) {
+    const known = this.discoveredPeers.get(peer.id);
+    peer.lastSeen = Math.max(seenAt, known?.lastSeen ?? 0);
     this.discoveredPeers.set(peer.id, peer);
     this.notifyPeersUpdated();
   }
@@ -328,7 +384,7 @@ export class WirelessTransferEngine {
     const now = Date.now();
     const active: PeerDevice[] = [];
     for (const [id, peer] of this.discoveredPeers) {
-      if (now - peer.lastSeen < 25000) {
+      if (now - peer.lastSeen < PEER_EXPIRY_MS || peer.id === this.activePeer?.id) {
         active.push(peer);
       } else {
         this.discoveredPeers.delete(id);
@@ -397,7 +453,10 @@ export class WirelessTransferEngine {
     }
 
     this.gatheredCandidates = [];
-    this.pendingCandidates = [];
+    // Trickled candidates can overtake the offer; the answerer still needs them.
+    if (isInitiator) {
+      this.pendingCandidates = [];
+    }
 
     const pc = new RTCPeerConnection({
       iceServers: await buildIceServers(),
@@ -458,6 +517,21 @@ export class WirelessTransferEngine {
     }
 
     return pc;
+  }
+
+  /** Local candidate types gathered for the current attempt. */
+  public getIceSummary(): { maskedHost: number; host: number; srflx: number; relay: number } {
+    const summary = { maskedHost: 0, host: 0, srflx: 0, relay: 0 };
+    for (const cand of this.gatheredCandidates) {
+      const line = cand.candidate || "";
+      if (line.includes(" typ relay")) summary.relay++;
+      else if (line.includes(" typ srflx")) summary.srflx++;
+      else if (line.includes(" typ host")) {
+        if (line.includes(".local ")) summary.maskedHost++;
+        else summary.host++;
+      }
+    }
+    return summary;
   }
 
   private async logSelectedCandidatePair(pc: RTCPeerConnection) {

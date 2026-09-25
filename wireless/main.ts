@@ -3,7 +3,12 @@
  */
 
 import QRCode from "qrcode";
-import { WirelessTransferEngine, TransferProgress } from "./transfer-engine";
+import {
+  WirelessTransferEngine,
+  TransferProgress,
+  hasLocalIpAccess,
+  unlockLocalIpAccess,
+} from "./transfer-engine";
 import { WirelessRadar } from "./radar";
 import { PeerDevice, InstantQRHandshake } from "./protocol";
 
@@ -381,16 +386,26 @@ class WirelessApp {
 
   private async handlePeerSelected(peer: PeerDevice) {
     this.connectedBannerEl.style.display = "block";
-    this.connectedNameEl.textContent = `Connecting to ${peer.name}...`;
     this.connectedNameEl.style.color = "#38bdf8";
 
+    if (!(await hasLocalIpAccess())) {
+      this.connectedNameEl.textContent =
+        "Allow camera access once — it reveals this device's local Wi-Fi address for a direct link (camera turns off instantly).";
+      await unlockLocalIpAccess();
+    }
+
+    this.connectedNameEl.textContent = `Connecting to ${peer.name}...`;
     const connected = await this.engine.connectToPeer(peer);
+    const ice = this.engine.getIceSummary();
     if (connected) {
       this.connectedNameEl.textContent = `Connected to ${peer.name} (⚡ 50-120+ MB/s Link)`;
       this.connectedNameEl.style.color = "#22c55e";
       this.updateSendButtonState();
     } else {
-      this.connectedNameEl.textContent = `Connection to ${peer.name} timed out. Retry or use 1-Sec QR Pair.`;
+      const localMasked = ice.host === 0 && ice.maskedHost > 0;
+      this.connectedNameEl.textContent = localMasked
+        ? `Couldn't reach ${peer.name}: allow camera permission for this site, then retry.`
+        : `Couldn't reach ${peer.name}. On the other device tap "Scan QR" and scan this screen's 1-Sec QR (grants it local-network access), then retry.`;
       this.connectedNameEl.style.color = "#f43f5e";
     }
   }
@@ -451,6 +466,8 @@ class WirelessApp {
   // QR Modals
   private async showQRModal() {
     this.qrModalEl.classList.add("active");
+    // Unmask this device's LAN IP so the scanning phone can reach it directly
+    void unlockLocalIpAccess();
     const handshake = await this.engine.generateQRHandshake();
     this.qrPinCodeEl.textContent = `PIN: ${handshake.key || "------"}`;
 
