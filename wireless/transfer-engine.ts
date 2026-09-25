@@ -49,12 +49,60 @@ export type SnippetReceivedCallback = (snippet: TextSnippetPayload) => void;
 export type ConnectionCallback = (peer: PeerDevice) => void;
 export type FileSavedCallback = (name: string, url: string, size: number, sha256: string) => void;
 
-// Fast, highly available STUN servers with dual IPv4/IPv6 resolution
-const ICE_SERVERS: RTCIceServer[] = [
+// Direct paths are preferred. TURN is only selected by ICE when host/STUN
+// candidates cannot connect (for example, on carrier-grade NAT hotspots).
+const STUN_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
 ];
+
+const DEFAULT_TURN_URLS = [
+  "turn:staticauth.openrelay.metered.ca:80?transport=udp",
+  "turn:staticauth.openrelay.metered.ca:80?transport=tcp",
+  "turn:staticauth.openrelay.metered.ca:443?transport=udp",
+  "turn:staticauth.openrelay.metered.ca:443?transport=tcp",
+];
+
+/**
+ * Builds short-lived TURN REST credentials. Deployments can replace every
+ * default through Vite environment variables without committing secrets.
+ */
+async function buildIceServers(): Promise<RTCIceServer[]> {
+  const configuredUrls = import.meta.env.VITE_TURN_URLS?.split(",")
+    .map((url: string) => url.trim())
+    .filter(Boolean);
+  const urls = configuredUrls?.length ? configuredUrls : DEFAULT_TURN_URLS;
+  const staticUsername = import.meta.env.VITE_TURN_USERNAME;
+  const staticCredential = import.meta.env.VITE_TURN_CREDENTIAL;
+
+  if (staticUsername && staticCredential) {
+    return [...STUN_SERVERS, { urls, username: staticUsername, credential: staticCredential }];
+  }
+
+  // Open Relay publishes this shared secret specifically for TURN REST auth.
+  // VITE_TURN_SHARED_SECRET should be used for a private/self-hosted service.
+  const sharedSecret =
+    import.meta.env.VITE_TURN_SHARED_SECRET || "openrelayprojectsecret";
+  const username = `${Math.floor(Date.now() / 1000) + 24 * 60 * 60}:aetherstream`;
+
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(sharedSecret),
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"]
+    );
+    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(username));
+    const credential = btoa(String.fromCharCode(...new Uint8Array(signature)));
+    return [...STUN_SERVERS, { urls, username, credential }];
+  } catch (error) {
+    console.warn("[WebRTC] TURN credential generation failed; using STUN only.", error);
+    return STUN_SERVERS;
+  }
+}
 
 // High-availability public signaling host (zero quota restrictions)
 const SIGNAL_BASE = "https://ntfy.adminforge.de";
@@ -332,7 +380,10 @@ export class WirelessTransferEngine {
   /**
    * Creates or configures the RTCPeerConnection
    */
-  private createPeerConnection(isInitiator: boolean, remotePeer: PeerDevice): RTCPeerConnection {
+  private async createPeerConnection(
+    isInitiator: boolean,
+    remotePeer: PeerDevice
+  ): Promise<RTCPeerConnection> {
     // If existing connection is already open and connected to this peer, reuse
     if (this.peerConnection && this.isConnected() && this.activePeer?.id === remotePeer.id) {
       return this.peerConnection;
@@ -349,7 +400,8 @@ export class WirelessTransferEngine {
     this.pendingCandidates = [];
 
     const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
+      iceServers: await buildIceServers(),
+      iceCandidatePoolSize: 4,
     });
     this.peerConnection = pc;
     this.activePeer = remotePeer;
@@ -358,6 +410,10 @@ export class WirelessTransferEngine {
     pc.onicecandidate = (event) => {
       if (event.candidate && this.activePeer) {
         const candJson = event.candidate.toJSON();
+        console.log(
+          `[WebRTC ICE Candidate] ${event.candidate.type || "unknown"} / ` +
+            `${event.candidate.protocol || "unknown"}`
+        );
         this.gatheredCandidates.push(candJson);
         this.sendSignal("ICE_CANDIDATE", candJson, this.activePeer.id);
       }
@@ -366,7 +422,8 @@ export class WirelessTransferEngine {
     pc.oniceconnectionstatechange = () => {
       console.log(`[WebRTC ICE State] -> ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-        console.log(`⚡ WebRTC P2P direct path connected with ${remotePeer.name}!`);
+        console.log(`⚡ WebRTC path connected with ${remotePeer.name}!`);
+        this.logSelectedCandidatePair(pc);
       } else if (pc.iceConnectionState === "failed") {
         console.warn(`[WebRTC ICE Failed] Connection path failed.`);
         if (this.connectionResolver) {
@@ -401,6 +458,24 @@ export class WirelessTransferEngine {
     }
 
     return pc;
+  }
+
+  private async logSelectedCandidatePair(pc: RTCPeerConnection) {
+    try {
+      const stats = await pc.getStats();
+      for (const report of stats.values()) {
+        if (report.type !== "candidate-pair" || !report.selected) continue;
+        const local = stats.get(report.localCandidateId);
+        const remote = stats.get(report.remoteCandidateId);
+        console.log(
+          `[WebRTC Path] ${local?.candidateType || "unknown"} -> ` +
+            `${remote?.candidateType || "unknown"} (${local?.protocol || "unknown"})`
+        );
+        return;
+      }
+    } catch (error) {
+      console.debug("[WebRTC] Candidate-pair diagnostics unavailable.", error);
+    }
   }
 
   private setupDataChannel(dc: RTCDataChannel, peer: PeerDevice) {
@@ -504,7 +579,7 @@ export class WirelessTransferEngine {
 
       let pc = this.peerConnection;
       if (!pc || (isCollision && isPolite)) {
-        pc = this.createPeerConnection(false, sender);
+        pc = await this.createPeerConnection(false, sender);
       }
 
       // If polite and collision, rollback local description
@@ -603,7 +678,7 @@ export class WirelessTransferEngine {
 
     console.log(`⚡ Initiating high-speed connection to ${targetPeer.name} (${targetPeer.id})...`);
     this.isMakingOffer = true;
-    const pc = this.createPeerConnection(true, targetPeer);
+    const pc = await this.createPeerConnection(true, targetPeer);
 
     try {
       const offer = await pc.createOffer();
@@ -650,7 +725,7 @@ export class WirelessTransferEngine {
           this.connectionResolver(open);
           this.connectionResolver = null;
         }
-      }, 15000);
+      }, 30000);
     });
   }
 
