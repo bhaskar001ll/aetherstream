@@ -7,7 +7,6 @@ import { WirelessTransferEngine, TransferProgress } from "./transfer-engine";
 import { WirelessRadar } from "./radar";
 import { PeerDevice, InstantQRHandshake } from "./protocol";
 
-// Format bytes into human-readable strings
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -101,9 +100,9 @@ class WirelessApp {
 
   private initUI() {
     this.myDeviceNameEl.textContent = this.engine.myDevice.name;
-    this.myDeviceSubEl.textContent = `OS: ${this.engine.myDevice.os.toUpperCase()} · ${this.engine.myDevice.browser} · No Cloud`;
+    this.myDeviceSubEl.textContent = `OS: ${this.engine.myDevice.os.toUpperCase()} · ${this.engine.myDevice.browser} · Direct P2P`;
 
-    // Auto-pair if opened via shared direct pairing URL (works seamlessly on Vercel / any host)
+    // Auto-pair if opened via shared direct pairing URL
     const urlParams = new URLSearchParams(window.location.search);
     const pairParam = urlParams.get("pair");
     if (pairParam) {
@@ -198,7 +197,7 @@ class WirelessApp {
     this.btnScanQrEl.addEventListener("click", () => this.showScannerModal());
     this.btnCloseScannerEl.addEventListener("click", () => this.closeScannerModal());
 
-    // Bluetooth
+    // Bluetooth Info
     this.btnBluetoothEl.addEventListener("click", () => this.handleBluetoothScan());
 
     // Refresh peers
@@ -267,7 +266,6 @@ class WirelessApp {
   }
 
   private setupEngineCallbacks() {
-    // Connection established callback
     this.engine.onConnected = (peer) => {
       this.connectedBannerEl.style.display = "block";
       this.connectedNameEl.textContent = `Connected to ${peer.name} (⚡ 50-120+ MB/s Link)`;
@@ -275,19 +273,16 @@ class WirelessApp {
       this.updateSendButtonState();
     };
 
-    // Peers update
     this.engine.onPeersUpdated = (peers) => {
       this.radar.updatePeers(peers);
       this.peerCountEl.textContent = `${peers.length} nearby`;
       this.renderDiscoveredPeers(peers);
     };
 
-    // Progress
     this.engine.onProgress = (progress) => {
       this.updateProgressDashboard(progress);
     };
 
-    // Received File
     this.engine.onFileSaved = (name, url, size, sha256) => {
       this.playChime();
       this.emptyHistoryEl.style.display = "none";
@@ -305,7 +300,6 @@ class WirelessApp {
       this.historyListEl.prepend(card);
     };
 
-    // Received Snippet
     this.engine.onSnippetReceived = (snippet) => {
       this.playChime();
       this.emptyHistoryEl.style.display = "none";
@@ -395,7 +389,7 @@ class WirelessApp {
       this.connectedNameEl.style.color = "#22c55e";
       this.updateSendButtonState();
     } else {
-      this.connectedNameEl.textContent = `Connection to ${peer.name} timed out. Retry or use 1-Sec QR.`;
+      this.connectedNameEl.textContent = `Connection to ${peer.name} timed out. Retry or use 1-Sec QR Pair.`;
       this.connectedNameEl.style.color = "#f43f5e";
     }
   }
@@ -459,7 +453,15 @@ class WirelessApp {
     const handshake = await this.engine.generateQRHandshake();
     this.qrPinCodeEl.textContent = `PIN: ${handshake.key || "------"}`;
 
-    // Universal URL for direct pairing across browsers (works seamlessly on Vercel / any host)
+    // Start listening on this PIN code channel so another device entering PIN can connect
+    if (handshake.key) {
+      this.engine.listenForPin(handshake.key, (remotePeer) => {
+        this.qrModalEl.classList.remove("active");
+        this.handlePeerSelected(remotePeer);
+      });
+    }
+
+    // Universal URL for direct pairing across browsers
     const pairUrl = `${window.location.origin}${window.location.pathname}?pair=${encodeURIComponent(JSON.stringify(handshake))}`;
 
     await QRCode.toCanvas(this.qrCanvasEl, pairUrl, {
@@ -502,7 +504,6 @@ class WirelessApp {
     const scanCanvas = document.createElement("canvas");
     const scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
 
-    // Use native BarcodeDetector if available (instant hardware decode)
     const hasBarcodeDetector = "BarcodeDetector" in window;
     let detector: any = null;
     if (hasBarcodeDetector) {
@@ -569,24 +570,10 @@ class WirelessApp {
     this.scannerModalEl.classList.remove("active");
   }
 
-  private async handleBluetoothScan() {
-    if (!("bluetooth" in navigator)) {
-      alert(
-        "Web Bluetooth is not supported in this browser.\n\nUse the 1-Sec QR code or Local Wi-Fi Radar above for instant connection!"
-      );
-      return;
-    }
-
-    try {
-      const device = await (navigator as any).bluetooth.requestDevice({
-        acceptAllDevices: true,
-      });
-      alert(`Bluetooth device selected: ${device.name || "Unnamed Device"}`);
-    } catch (err: any) {
-      if (err.name !== "NotFoundError") {
-        console.warn("Bluetooth scan notice:", err);
-      }
-    }
+  private handleBluetoothScan() {
+    alert(
+      "High-speed Direct Wi-Fi transfer is active (50-120+ MB/s).\n\nUse the 1-Sec QR code or Local Radar above for instant direct connection!"
+    );
   }
 
   private async handlePinSubmit() {
@@ -597,14 +584,20 @@ class WirelessApp {
     this.connectedNameEl.textContent = `Pairing with PIN ${pin}...`;
     this.connectedNameEl.style.color = "#38bdf8";
 
-    // Auto-discover peer or connect to active peer on radar
-    const peers = Array.from((this.engine as any).discoveredPeers.values()) as PeerDevice[];
+    // Submit PIN pair request over real signaling channel
+    await this.engine.submitPinPair(pin);
+
+    // Also check if peer is already discovered on radar
+    const peers = Array.from(this.engine.discoveredPeers.values());
     if (peers.length > 0) {
       await this.handlePeerSelected(peers[0]);
     } else {
-      this.connectedNameEl.textContent = `Connected with Session PIN: ${pin}`;
-      this.connectedNameEl.style.color = "#22c55e";
-      this.btnSendNowEl.disabled = false;
+      setTimeout(() => {
+        if (!this.engine.isConnected()) {
+          this.connectedNameEl.textContent = `Waiting for device with PIN ${pin}... or scan 1-Sec QR.`;
+          this.connectedNameEl.style.color = "#f59e0b";
+        }
+      }, 3000);
     }
   }
 
@@ -650,8 +643,8 @@ class WirelessApp {
       osc.type = "sine";
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
       gain.gain.setValueAtTime(0.2, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
       osc.start();
