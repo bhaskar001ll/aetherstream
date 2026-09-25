@@ -203,6 +203,7 @@ class WirelessApp {
     // Refresh peers
     this.btnRefreshPeersEl.addEventListener("click", () => {
       this.btnRefreshPeersEl.textContent = "⏳ Scanning...";
+      this.engine.broadcastPresence();
       setTimeout(() => {
         this.btnRefreshPeersEl.textContent = "🔄 Scan";
       }, 1000);
@@ -670,5 +671,12 @@ class WirelessApp {
 
 // Start app on DOMContentLoaded
 window.addEventListener("DOMContentLoaded", () => {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) {
+        reg.update().catch(() => {});
+      }
+    });
+  }
   new WirelessApp();
 });

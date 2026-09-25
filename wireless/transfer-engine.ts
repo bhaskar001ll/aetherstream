@@ -56,6 +56,9 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.cloudflare.com:3478" },
 ];
 
+// High-availability public signaling host (zero quota restrictions)
+const SIGNAL_BASE = "https://ntfy.adminforge.de";
+
 export class WirelessTransferEngine {
   public myDevice: PeerDevice;
   public discoveredPeers: Map<string, PeerDevice> = new Map();
@@ -136,20 +139,19 @@ export class WirelessTransferEngine {
   }
 
   /**
-   * Initializes real-time cloud signaling via ntfy.sh SSE
+   * Initializes real-time cloud signaling via reliable SSE
    */
   private setupCloudSignaling() {
     try {
       if (typeof EventSource !== "undefined") {
         // Direct signaling channel for incoming WebRTC handshakes
-        this.sseSignalSource = new EventSource(`https://ntfy.sh/aether_sig_${this.myDevice.id}/sse`);
+        this.sseSignalSource = new EventSource(`${SIGNAL_BASE}/aether_sig_${this.myDevice.id}/sse`);
         this.sseSignalSource.onmessage = async (event) => {
           try {
             const raw = JSON.parse(event.data);
             if (raw.event === "message") {
               let packet: SignalPacket | null = null;
               if (raw.attachment && raw.attachment.url) {
-                // If message exceeded 4096 bytes, ntfy stores it as an attachment
                 const fileRes = await fetch(raw.attachment.url);
                 packet = await fileRes.json();
               } else if (raw.message) {
@@ -166,7 +168,7 @@ export class WirelessTransferEngine {
         };
 
         // Radar discovery channel
-        this.sseRadarSource = new EventSource("https://ntfy.sh/aether_radar_discovery/sse");
+        this.sseRadarSource = new EventSource(`${SIGNAL_BASE}/aether_radar_discovery/sse`);
         this.sseRadarSource.onmessage = (event) => {
           try {
             const raw = JSON.parse(event.data);
@@ -193,7 +195,7 @@ export class WirelessTransferEngine {
       this.ssePinSource = null;
     }
     try {
-      this.ssePinSource = new EventSource(`https://ntfy.sh/aether_pin_${pin.toUpperCase()}/sse`);
+      this.ssePinSource = new EventSource(`${SIGNAL_BASE}/aether_pin_${pin.toUpperCase()}/sse`);
       this.ssePinSource.onmessage = async (event) => {
         try {
           const raw = JSON.parse(event.data);
@@ -202,7 +204,6 @@ export class WirelessTransferEngine {
             if (data && data.peer && data.peer.id !== this.myDevice.id) {
               this.registerPeer(data.peer);
               onMatched(data.peer);
-              // Acknowledge back to peer
               await this.sendSignal("PIN_ACK", { sessionPin: pin }, data.peer.id);
             }
           }
@@ -220,7 +221,7 @@ export class WirelessTransferEngine {
       timestamp: Date.now(),
     };
     try {
-      await fetch(`https://ntfy.sh/aether_pin_${pin.toUpperCase()}`, {
+      await fetch(`${SIGNAL_BASE}/aether_pin_${pin.toUpperCase()}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -242,7 +243,7 @@ export class WirelessTransferEngine {
     this.broadcastPresence();
   }
 
-  private broadcastPresence() {
+  public broadcastPresence() {
     // 1. Same-machine broadcast
     try {
       this.broadcastChannel.postMessage({
@@ -255,12 +256,12 @@ export class WirelessTransferEngine {
       });
     } catch {}
 
-    // 2. Cloud radar presence (rate-limited to every 8 seconds)
+    // 2. Cloud radar presence (rate-limited to every 40s)
     const now = Date.now();
-    if (now - this.lastCloudBroadcast > 8000) {
+    if (now - this.lastCloudBroadcast > 40000) {
       this.lastCloudBroadcast = now;
       try {
-        fetch("https://ntfy.sh/aether_radar_discovery", {
+        fetch(`${SIGNAL_BASE}/aether_radar_discovery`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(this.myDevice),
@@ -318,9 +319,9 @@ export class WirelessTransferEngine {
       this.broadcastChannel.postMessage(packet);
     } catch {}
 
-    // 2. Real-time Cloud Push via ntfy.sh
+    // 2. Real-time Cloud Push via reliable SSE host
     try {
-      fetch(`https://ntfy.sh/aether_sig_${targetId}`, {
+      fetch(`${SIGNAL_BASE}/aether_sig_${targetId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(packet),
