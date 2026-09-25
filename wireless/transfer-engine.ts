@@ -1,7 +1,7 @@
 /**
  * AetherStream Wireless Transfer Engine
  * High-speed peer-to-peer data transport over WebRTC DataChannel.
- * Dual-stack TURN + STUN with bundled ICE candidate gathering and real-time signaling.
+ * Perfect Negotiation architecture with robust STUN connectivity and large-payload SSE signaling.
  */
 
 import {
@@ -44,16 +44,9 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-  {
-    urls: [
-      "turn:openrelay.metered.ca:80",
-      "turn:openrelay.metered.ca:443",
-      "turn:openrelay.metered.ca:443?transport=tcp",
-    ],
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
 ];
 
 export class WirelessTransferEngine {
@@ -64,8 +57,8 @@ export class WirelessTransferEngine {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private activePeer: PeerDevice | null = null;
+  private isMakingOffer: boolean = false;
   private gatheredCandidates: RTCIceCandidateInit[] = [];
-  private pendingCandidates: RTCIceCandidateInit[] = [];
 
   // Callbacks
   public onConnected?: ConnectionCallback;
@@ -137,22 +130,33 @@ export class WirelessTransferEngine {
 
   /**
    * Initializes real-time cloud signaling via ntfy.sh SSE & discovery
+   * Handles large SDP payloads seamlessly via attachment URL resolution
    */
   private setupCloudSignaling() {
     try {
       if (typeof EventSource !== "undefined") {
         // Direct signaling channel for incoming WebRTC handshakes
         this.sseSignalSource = new EventSource(`https://ntfy.sh/aether_sig_${this.myDevice.id}/sse`);
-        this.sseSignalSource.onmessage = (event) => {
+        this.sseSignalSource.onmessage = async (event) => {
           try {
             const raw = JSON.parse(event.data);
-            if (raw.event === "message" && raw.message) {
-              const data = JSON.parse(raw.message);
+            if (raw.event === "message") {
+              let data: any = null;
+              if (raw.attachment && raw.attachment.url) {
+                // If message exceeded 4096 bytes, ntfy stores it as an attachment
+                const fileRes = await fetch(raw.attachment.url);
+                data = await fileRes.json();
+              } else if (raw.message) {
+                data = JSON.parse(raw.message);
+              }
+
               if (data && data.type && data.fromPeer) {
-                this.handleDirectSignal(data.type, data.payload, data.fromPeer);
+                await this.handleDirectSignal(data.type, data.payload || data.signal, data.fromPeer);
               }
             }
-          } catch {}
+          } catch (e) {
+            console.warn("Signal SSE parse notice:", e);
+          }
         };
 
         // Radar discovery channel to see other active devices on cloud / LAN
@@ -175,13 +179,13 @@ export class WirelessTransferEngine {
   }
 
   private setupBroadcastChannel() {
-    this.broadcastChannel.onmessage = (event) => {
-      const { type, payload, targetId, fromPeer } = event.data || {};
+    this.broadcastChannel.onmessage = async (event) => {
+      const { type, payload, signal, targetId, fromPeer } = event.data || {};
       if (fromPeer && fromPeer.id !== this.myDevice.id) {
         this.registerPeer(fromPeer);
       }
       if (targetId === this.myDevice.id && type && fromPeer) {
-        this.handleDirectSignal(type, payload, fromPeer);
+        await this.handleDirectSignal(type, payload || signal, fromPeer);
       }
     };
 
@@ -261,7 +265,7 @@ export class WirelessTransferEngine {
         if (sigRes.ok) {
           const queuedSignals = await sigRes.json();
           for (const item of queuedSignals) {
-            this.handleDirectSignal(item.type, item.signal, item.fromPeer);
+            await this.handleDirectSignal(item.type, item.payload || item.signal, item.fromPeer);
           }
         }
       } catch {
@@ -271,14 +275,16 @@ export class WirelessTransferEngine {
   }
 
   private async sendSignal(type: string, payload: any, targetId: string) {
+    const packet = {
+      type,
+      payload,
+      targetId,
+      fromPeer: this.myDevice,
+    };
+
     // 1. BroadcastChannel (same machine/browser tabs)
     try {
-      this.broadcastChannel.postMessage({
-        type,
-        payload,
-        targetId,
-        fromPeer: this.myDevice,
-      });
+      this.broadcastChannel.postMessage(packet);
     } catch {}
 
     // 2. Real-time Cloud Push via ntfy.sh (sub-100ms delivery across any network)
@@ -286,12 +292,7 @@ export class WirelessTransferEngine {
       fetch(`https://ntfy.sh/aether_sig_${targetId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type,
-          payload,
-          targetId,
-          fromPeer: this.myDevice,
-        }),
+        body: JSON.stringify(packet),
       }).catch(() => {});
     } catch {}
 
@@ -300,12 +301,7 @@ export class WirelessTransferEngine {
       await fetch("/api/wireless/signal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type,
-          signal: payload,
-          targetId,
-          fromPeer: this.myDevice,
-        }),
+        body: JSON.stringify(packet),
       });
     } catch {}
   }
@@ -317,7 +313,6 @@ export class WirelessTransferEngine {
       } catch {}
     }
     this.gatheredCandidates = [];
-    this.pendingCandidates = [];
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.peerConnection = pc;
@@ -325,10 +320,22 @@ export class WirelessTransferEngine {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        const cJson = event.candidate.toJSON();
-        this.gatheredCandidates.push(cJson);
-        this.sendSignal("TRICKLE_ICE", cJson, remotePeer.id);
+        this.gatheredCandidates.push(event.candidate.toJSON());
       }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC ICE State] -> ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        console.log(`⚡ WebRTC P2P direct path connected with ${remotePeer.name}!`);
+      } else if (pc.iceConnectionState === "failed") {
+        console.warn(`[WebRTC ICE Failed] Attempting ICE restart...`);
+        try { pc.restartIce(); } catch {}
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC Connection State] -> ${pc.connectionState}`);
     };
 
     if (isInitiator) {
@@ -379,7 +386,7 @@ export class WirelessTransferEngine {
     };
   }
 
-  private async waitForIceGathering(pc: RTCPeerConnection, maxWaitMs = 1200): Promise<void> {
+  private async waitForIceGathering(pc: RTCPeerConnection, maxWaitMs = 600): Promise<void> {
     if (pc.iceGatheringState === "complete") return;
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -403,8 +410,18 @@ export class WirelessTransferEngine {
     this.registerPeer(sender);
 
     if (type === "OFFER") {
+      const isCollision = this.isMakingOffer || (this.peerConnection && this.peerConnection.signalingState !== "stable");
+      const isPolite = this.myDevice.id < sender.id;
+
+      if (isCollision && !isPolite) {
+        console.log(`[Collision] Impolite peer (${this.myDevice.name}) ignoring offer from ${sender.name}`);
+        return;
+      }
+
+      console.log(`⚡ Processing WebRTC OFFER from ${sender.name}`);
       this.activePeer = sender;
       const pc = this.createPeerConnection(false, sender);
+
       await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: payload.sdp }));
 
       // Apply all bundled candidates
@@ -415,19 +432,12 @@ export class WirelessTransferEngine {
           } catch {}
         }
       }
-      // Apply any pending trickled candidates
-      for (const cand of this.pendingCandidates) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(cand));
-        } catch {}
-      }
-      this.pendingCandidates = [];
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      // Wait up to 1000ms to gather local host & TURN candidates
-      await this.waitForIceGathering(pc, 1000);
+      // Wait up to 600ms to gather local host & STUN candidates
+      await this.waitForIceGathering(pc, 600);
 
       const sdp = pc.localDescription?.sdp || answer.sdp;
       await this.sendSignal("ANSWER", {
@@ -435,7 +445,8 @@ export class WirelessTransferEngine {
         candidates: this.gatheredCandidates,
       }, sender.id);
     } else if (type === "ANSWER") {
-      if (this.peerConnection) {
+      if (this.peerConnection && this.peerConnection.signalingState === "have-local-offer") {
+        console.log(`⚡ Processing WebRTC ANSWER from ${sender.name}`);
         await this.peerConnection.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: payload.sdp }));
 
         // Apply all bundled candidates
@@ -445,23 +456,6 @@ export class WirelessTransferEngine {
               await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
             } catch {}
           }
-        }
-        // Apply any pending trickled candidates
-        for (const cand of this.pendingCandidates) {
-          try {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
-          } catch {}
-        }
-        this.pendingCandidates = [];
-      }
-    } else if (type === "TRICKLE_ICE") {
-      if (payload) {
-        if (this.peerConnection && this.peerConnection.remoteDescription) {
-          try {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(payload));
-          } catch {}
-        } else {
-          this.pendingCandidates.push(payload);
         }
       }
     }
@@ -476,18 +470,24 @@ export class WirelessTransferEngine {
     }
 
     console.log(`⚡ Initiating high-speed connection to ${targetPeer.name} (${targetPeer.id})...`);
+    this.isMakingOffer = true;
     const pc = this.createPeerConnection(true, targetPeer);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
 
-    // Wait up to 1000ms to gather local host & TURN relay candidates
-    await this.waitForIceGathering(pc, 1000);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
 
-    const sdp = pc.localDescription?.sdp || offer.sdp;
-    await this.sendSignal("OFFER", {
-      sdp,
-      candidates: this.gatheredCandidates,
-    }, targetPeer.id);
+      // Wait up to 600ms to gather local host & STUN candidates
+      await this.waitForIceGathering(pc, 600);
+
+      const sdp = pc.localDescription?.sdp || offer.sdp;
+      await this.sendSignal("OFFER", {
+        sdp,
+        candidates: this.gatheredCandidates,
+      }, targetPeer.id);
+    } finally {
+      this.isMakingOffer = false;
+    }
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -910,7 +910,6 @@ export class WirelessTransferEngine {
     }
     this.activePeer = null;
     this.gatheredCandidates = [];
-    this.pendingCandidates = [];
   }
 
   public close() {

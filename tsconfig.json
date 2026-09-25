@@ -10,7 +10,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"]
   },
-  "include": ["shared", "send", "receive", "src-env.d.ts"]
+  "include": ["shared", "send", "receive", "src-env.d.ts", "api"]
 }
