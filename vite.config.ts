@@ -28,6 +28,7 @@ import { rewriteStandaloneLinks } from "./build/rewrite-standalone-links";
 import { standaloneCsp } from "./build/standalone-csp";
 import { emitAs } from "./build/emit-as";
 import { rootPwaHead } from "./build/root-pwa-head";
+import { wirelessSignaling } from "./build/wireless-signaling";
 
 // Where the site is published, used only to make the social-card URLs absolute
 // — scrapers are inconsistent about resolving relative ones. Override with
@@ -157,11 +158,13 @@ export default defineConfig(({ mode }) => {
         },
       }),
       rootPwaHead(),
+      wirelessSignaling(),
     ],
     build: {
       rollupOptions: {
         input: {
           index: resolve(__dirname, "index.html"),
+          wireless: resolve(__dirname, "wireless/index.html"),
           send: resolve(__dirname, "broadcaster/index.html"),
           secure: resolve(__dirname, "secure-broadcaster/index.html"),
           receive: resolve(__dirname, "scanner/index.html"),

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#020617" />
+  <title>AetherStream Ultra — Wireless High-Speed Transfer</title>
+  <link rel="stylesheet" href="./wireless.css" />
+  <link rel="icon" href="../muffin_logo.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div class="shell">
+    <!-- Header -->
+    <header class="wireless-header">
+      <div class="brand-group">
+        <h1>⚡ AetherStream Wireless Ultra</h1>
+        <p>Gigabit Local Wi-Fi & Bluetooth Direct Transfer · Phone ↔ PC Seamless Link</p>
+      </div>
+      <div class="header-badges">
+        <span class="speed-badge">⚡ 50–120+ MB/s P2P</span>
+        <a href="../broadcaster/" class="back-btn" style="background: rgba(168, 85, 247, 0.2); border-color: #a855f7; color: #c084fc; font-weight: 600;">
+          📢 Mass Optical Broadcast (1:Many)
+        </a>
+        <a href="../" class="back-btn">🏠 Home</a>
+      </div>
+    </header>
+
+    <!-- My Device Status Bar -->
+    <section class="device-status-bar">
+      <div class="my-device-info">
+        <div class="status-dot" id="device-status-dot"></div>
+        <div>
+          <div class="device-name" id="my-device-name">Detecting device...</div>
+          <div class="device-sub" id="my-device-sub">Local Wi-Fi Peer Active · Zero Cloud</div>
+        </div>
+      </div>
+      <div class="device-actions">
+        <button id="btn-show-qr" class="btn-primary">📱 1-Sec QR Pair</button>
+        <button id="btn-scan-qr" class="btn-secondary">📷 Scan QR</button>
+        <button id="btn-enter-pin" class="btn-secondary">🔑 Enter PIN</button>
+        <button id="btn-bluetooth" class="btn-secondary">📡 Bluetooth</button>
+      </div>
+    </section>
+
+    <!-- Discovered Radar Section -->
+    <div class="radar-grid">
+      <!-- Radar Canvas Card -->
+      <div class="card radar-wrapper">
+        <div class="card-title">
+          <span>📡 LOCAL RADAR</span>
+          <span style="font-size:0.75rem; color:#94a3b8;" id="peer-count">0 nearby</span>
+        </div>
+        <canvas id="radar-canvas" width="260" height="260"></canvas>
+        <p class="radar-hint">Click a blip or item on the right to connect</p>
+      </div>
+
+      <!-- Discovered Peers List -->
+      <div class="card">
+        <div class="card-title">
+          <span>NEARBY PEERS</span>
+          <button id="btn-refresh-peers" class="btn-secondary" style="padding:4px 8px; font-size:0.75rem;">🔄 Scan</button>
+        </div>
+        <div class="discovered-list" id="discovered-peers-list">
+          <p style="color:#94a3b8; font-size:0.85rem; text-align:center; padding: 30px 0;">
+            Searching for nearby phones and PCs on local Wi-Fi...<br />
+            <span style="font-size:0.75rem; color:#64748b;">Or tap "1-Sec QR Pair" above to connect directly.</span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Connected Peer Notice -->
+    <div id="connected-peer-banner" style="display:none; margin-bottom: 20px;" class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:1.5rem;">🔗</span>
+          <div>
+            <h4 style="color:#22c55e;" id="connected-peer-name">Connected to Remote Device</h4>
+            <p style="font-size:0.75rem; color:#94a3b8;">High-speed encrypted channel established over local Wi-Fi.</p>
+          </div>
+        </div>
+        <button id="btn-disconnect" class="btn-secondary" style="color:#f43f5e; border-color:rgba(244,63,94,0.3);">Disconnect</button>
+      </div>
+    </div>
+
+    <!-- Transfer Dashboard (Speedometer, Progress, ETA) -->
+    <div class="card transfer-dashboard" id="transfer-dashboard">
+      <div class="card-title">
+        <span id="transfer-state-title">TRANSFERRING DATA</span>
+        <span id="transfer-pct" style="color:#22c55e;">0%</span>
+      </div>
+
+      <div class="speed-meter-grid">
+        <div class="stat-box">
+          <div class="stat-label">Transfer Speed</div>
+          <div class="stat-val" id="stat-speed">0.0 MB/s</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Progress</div>
+          <div class="stat-val" id="stat-bytes">0 / 0 MB</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">ETA Remaining</div>
+          <div class="stat-val" id="stat-eta">-- s</div>
+        </div>
+      </div>
+
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-bar"></div>
+      </div>
+      <p id="transfer-status-msg" style="font-size:0.8rem; color:#94a3b8; text-align:center; margin-top:6px;">
+        Streaming packets...
+      </p>
+    </div>
+
+    <!-- Send Workspace -->
+    <section class="card" style="margin-top:20px;">
+      <div class="tabs-nav">
+        <button class="tab-btn active" id="tab-send-file">📁 Send Files</button>
+        <button class="tab-btn" id="tab-send-text">📝 Send Text / Clipboard</button>
+      </div>
+
+      <!-- File Tab Pane -->
+      <div id="pane-send-file">
+        <div class="dropzone" id="file-dropzone">
+          <div class="dropzone-icon">🚀</div>
+          <div class="dropzone-title">Drag & drop files here or click to browse</div>
+          <div class="dropzone-sub">Send any file size (Photos, 4K Videos, ZIPs, Documents) at 50–120+ MB/s</div>
+          <input type="file" id="file-input" multiple style="display:none;" />
+        </div>
+        <p style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin-top: 8px;">
+          💡 Need to broadcast to an entire room or audience at once? <a href="../broadcaster/" style="color: #c084fc; font-weight: bold; text-decoration: underline;">Switch to Mass Optical Broadcast (1:Many)</a>.
+        </p>
+
+        <div class="file-queue" id="file-queue"></div>
+      </div>
+
+      <!-- Text Snippet Pane -->
+      <div id="pane-send-text" style="display:none;">
+        <textarea class="snippet-area" id="snippet-input" placeholder="Type or paste text, links, code, or clipboard snippets here..."></textarea>
+      </div>
+
+      <!-- Security & Encryption -->
+      <div class="security-row">
+        <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer;">
+          <input type="checkbox" id="chk-encrypt" />
+          <span>🔒 AES-256-GCM Password Encryption</span>
+        </label>
+        <input type="password" id="input-password" class="security-input" placeholder="Optional encryption passphrase" style="display:none;" />
+      </div>
+
+      <div style="margin-top:16px; display:flex; justify-content:flex-end;">
+        <button id="btn-send-now" class="btn-primary" style="padding:10px 24px; font-size:1rem;" disabled>
+          ⚡ Send Now
+        </button>
+      </div>
+    </section>
+
+    <!-- Received Files & History -->
+    <section class="card" style="margin-top:20px;">
+      <div class="card-title">
+        <span>📥 RECEIVED FILES & SNIPPETS</span>
+        <button id="btn-clear-history" class="btn-secondary" style="padding:4px 8px; font-size:0.75rem;">Clear</button>
+      </div>
+      <div class="history-list" id="history-list">
+        <p style="color:#94a3b8; font-size:0.85rem; text-align:center; padding: 20px 0;" id="empty-history-msg">
+          No transfers received yet. When files arrive, they appear here.
+        </p>
+      </div>
+    </section>
+
+    <footer style="margin-top: 30px; text-align: center; color: #64748b; font-size: 0.8rem;">
+      AetherStream Wireless Ultra · Designed & Authored by Bhaskar.
+    </footer>
+  </div>
+
+  <!-- QR Pairing Modal -->
+  <div class="modal-overlay" id="qr-modal">
+    <div class="modal-content">
+      <button class="modal-close" id="btn-close-qr-modal">×</button>
+      <h3 style="color:#38bdf8; margin-bottom: 6px;">1-Second Instant Pair</h3>
+      <p style="font-size:0.8rem; color:#94a3b8;">
+        Scan this QR code with your phone or PC camera to pair in 0.5s!
+      </p>
+      <canvas id="qr-pairing-canvas" width="220" height="220"></canvas>
+      <div style="font-size:1.15rem; font-weight:800; color:#38bdf8; letter-spacing:0.15em; margin: 8px 0;" id="qr-pin-code">
+        PIN: ------
+      </div>
+      <p style="font-size:0.75rem; color:#64748b;">
+        No camera? Type the PIN above on the other device.
+      </p>
+      <div style="font-family:monospace; font-size:0.75rem; background:rgba(0,0,0,0.4); padding:6px; border-radius:8px; margin-top:10px;" id="qr-session-info">
+        Session: Initializing...
+      </div>
+      <button id="btn-copy-pair-url" class="btn-secondary" style="margin-top:10px; width:100%; justify-content:center; font-size:0.85rem;">
+        📋 Copy Direct Pairing Link
+      </button>
+    </div>
+  </div>
+
+  <!-- PIN Pairing Modal -->
+  <div class="modal-overlay" id="pin-modal">
+    <div class="modal-content">
+      <button class="modal-close" id="btn-close-pin-modal">×</button>
+      <h3 style="color:#38bdf8; margin-bottom: 6px;">Connect with PIN Code</h3>
+      <p style="font-size:0.8rem; color:#94a3b8; margin-bottom:14px;">
+        Enter the 8-character PIN shown on the other device's screen.
+      </p>
+      <input type="text" id="input-pin-code" class="security-input" placeholder="e.g. 8K2M9X" maxlength="12" style="text-align:center; font-size:1.4rem; font-weight:800; letter-spacing:0.2em; text-transform:uppercase; margin-bottom:14px; width:100%;" />
+      <button id="btn-submit-pin" class="btn-primary" style="width:100%; justify-content:center;">Connect</button>
+    </div>
+  </div>
+
+  <!-- Scanner Modal -->
+  <div class="modal-overlay" id="scanner-modal">
+    <div class="modal-content">
+      <button class="modal-close" id="btn-close-scanner-modal">×</button>
+      <h3 style="color:#38bdf8; margin-bottom: 6px;">Scan Pair QR Code</h3>
+      <p style="font-size:0.8rem; color:#94a3b8;">
+        Point your camera at the other screen's pairing QR code.
+      </p>
+      <video id="scanner-video" playsinline></video>
+      <p id="scanner-status" style="font-size:0.8rem; color:#22c55e; margin-top:10px;">
+        Starting camera...
+      </p>
+    </div>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

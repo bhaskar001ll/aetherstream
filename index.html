@@ -20,6 +20,9 @@
           <div class="hamburger-container">
             <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation menu">☰</button>
             <div id="menu-dropdown" class="card menu-dropdown" style="display: none;">
+              <button onclick="window.location.href='./wireless/'" class="ghost action-btn menu-item" style="color: #38bdf8; font-weight: bold;">
+                <span>⚡</span> Ultra Wireless Mode
+              </button>
               <button onclick="window.location.href='./offline-encoder/'" class="ghost action-btn menu-item">
                 <span>🎬</span> Convert File to QR
               </button>
@@ -34,26 +37,64 @@
         </div>
       </header>
 
+      <!-- FEATURED ULTRA WIRELESS SECTION -->
+      <section style="margin-bottom: 24px;">
+        <article class="mode-card mode-panel" onclick="window.location.href='./wireless/'" style="background: radial-gradient(circle at 10% 20%, rgba(30, 27, 75, 0.95), rgba(15, 23, 42, 0.95) 90%); border: 2px solid #38bdf8; box-shadow: 0 0 30px rgba(56, 189, 248, 0.25); cursor: pointer; padding: 24px; border-radius: 18px; transition: transform 0.2s, box-shadow 0.2s;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 2.2rem; filter: drop-shadow(0 0 8px #38bdf8);">⚡</span>
+              <div>
+                <h2 style="font-size: 1.4rem; color: #38bdf8; font-weight: 800; margin-bottom: 2px; letter-spacing: -0.01em;">
+                  ULTRA WIRELESS TRANSFER
+                </h2>
+                <p style="font-size: 0.85rem; color: #94a3b8;">
+                  Gigabit Local Wi-Fi & Bluetooth Direct Link · Phone ↔ PC Fast Sharing
+                </p>
+              </div>
+            </div>
+            <span style="background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; color: #22c55e; padding: 4px 14px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);">
+              50–120+ MB/s · NO CAM FATIGUE
+            </span>
+          </div>
+          <p style="color: #cbd5e1; font-size: 0.9rem; line-height: 1.5; margin-bottom: 16px;">
+            Overcomes optical screen and camera limits! Pair in 0.5s via radar or 1-second instant QR handshake, then stream full-resolution videos, photos, and files at gigabit speeds with AES-256-GCM encryption.
+          </p>
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <span style="font-size: 0.75rem; color: #38bdf8; font-weight: 600;">✨ Zero Cloud · Local Peer-to-Peer · Web PWA</span>
+            <button class="primary action-btn" style="background: linear-gradient(135deg, #0284c7, #2563eb); font-size: 0.95rem; padding: 10px 22px; border: none; border-radius: 10px; color: white; font-weight: 700; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);">
+              Launch Ultra Wireless Mode →
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 18px;">
+        <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.15em; color: #a855f7; font-weight: 700;">
+          📢 Mass Optical Broadcast Mode (1-to-Many · Infinite Audience Scale)
+        </span>
+        <div style="flex: 1; height: 1px; background: rgba(168, 85, 247, 0.3);"></div>
+      </div>
+
       <section class="home-grid">
-        <article class="mode-card mode-panel send-panel" onclick="window.location.href='./broadcaster/'">
-          <div class="mode-icon">📡</div>
-          <h3>SEND MODE</h3>
-          <p>Broadcast a pre-rendered QR stream using 2x2 Muffin layout.</p>
-          <button class="ghost action-btn">Initiate broadcast →</button>
+        <article class="mode-card mode-panel send-panel" onclick="window.location.href='./broadcaster/'" style="border-color: rgba(168, 85, 247, 0.4);">
+          <div class="mode-icon">📢</div>
+          <h3>MASS BROADCAST (1:N)</h3>
+          <p>Broadcast files to <strong>thousands of users simultaneously</strong> using only your screen light. Zero network bandwidth required!</p>
+          <button class="ghost action-btn" style="border-color:#a855f7; color:#c084fc;">Start mass broadcast →</button>
         </article>
 
         <article class="mode-card mode-panel receive-panel" onclick="window.location.href='./scanner/'">
-          <div class="mode-icon">🔲</div>
-          <h3>RECEIVE MODE</h3>
-          <p>Generate QR capture mode and decode the live light stream.</p>
-          <button class="ghost action-btn">Open receiver →</button>
+          <div class="mode-icon">📷</div>
+          <h3>OPTICAL SCANNER</h3>
+          <p>Point camera at any screen broadcasting light stream to receive data offline.</p>
+          <button class="ghost action-btn">Open camera scanner →</button>
         </article>
 
         <article class="mode-card mode-panel secure-panel" onclick="window.location.href='./secure-broadcaster/'">
           <div class="mode-icon">🔒</div>
-          <h3>SECURE SEND MODE</h3>
-          <p>Encrypt files with a password before broadcasting them.</p>
-          <button class="ghost action-btn secure-btn">Secure broadcast →</button>
+          <h3>SECURE BROADCAST</h3>
+          <p>Password-encrypt files with AES-256 before broadcasting to the audience.</p>
+          <button class="ghost action-btn secure-btn">Secure mass broadcast →</button>
         </article>
       </section>
       
