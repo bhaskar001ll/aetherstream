@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/wireless",
+      "destination": "/wireless/index.html"
+    },
+    {
+      "source": "/broadcaster",
+      "destination": "/broadcaster/index.html"
+    },
+    {
+      "source": "/scanner",
+      "destination": "/scanner/index.html"
+    },
+    {
+      "source": "/secure-broadcaster",
+      "destination": "/secure-broadcaster/index.html"
+    },
+    {
+      "source": "/offline-encoder",
+      "destination": "/offline-encoder/index.html"
+    },
+    {
+      "source": "/offline-decoder",
+      "destination": "/offline-decoder/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ]
+}
